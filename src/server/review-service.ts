@@ -1,9 +1,13 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { createHash } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { lstat, readFile, readlink, realpath } from 'node:fs/promises';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import type { FileReview, FileStatus, RepositoryReview, ReviewFile, SourceSnapshot } from '../shared/review.js';
+
+import { extractFunctions } from './language-adapter.js';
+import { openRouterTransport, type AITransport } from './openrouter.js';
+import type { AnalysisPreview, FileExplanation, ModelSettings } from '../shared/explanation.js';
 
 const execute = promisify(execFile);
 const maxSourceBytes = 2 * 1024 * 1024;
@@ -21,7 +25,54 @@ function snapshot(version: SourceSnapshot['version'], content: string): SourceSn
 }
 
 /** Public application seam. Reads Git objects and local files; never executes target code. */
+export interface ReviewServiceOptions { apiKey?: string; model?: string; transport?: AITransport }
 export class ReviewService {
+  private previews = new Map<string, AnalysisPreview>();
+  private options: ReviewServiceOptions;
+  constructor(options: ReviewServiceOptions = {}) { this.options = options; }
+  getSettings(): ModelSettings {
+    return { model: this.options.model ?? process.env.OPENROUTER_MODEL ?? 'openai/gpt-4.1-mini', configured: Boolean(this.options.apiKey ?? process.env.OPENROUTER_API_KEY) };
+  }
+  async prepareAnalysis(repositoryPath: string, filePath: string, model = this.getSettings().model): Promise<AnalysisPreview> {
+    if (!model.trim() || model.length > 200) throw new Error('Choose a valid OpenRouter model.');
+    const file = await this.getFile(repositoryPath, filePath);
+    if (!file.supported || file.notice) throw new Error('This file is unsupported for explanations. Source remains available.');
+    const source = file.current ?? file.previous;
+    if (!source) throw new Error('No source is available for analysis.');
+    const preview: AnalysisPreview = { id: randomUUID(), repositoryPath: file.repositoryPath, filePath, model,
+      files: [{ ...source, path: filePath }], functions: extractFunctions(filePath, source.content) };
+    this.previews.set(preview.id, preview);
+    // A bounded session store avoids retaining arbitrary amounts of source indefinitely.
+    if (this.previews.size > 100) this.previews.delete(this.previews.keys().next().value!);
+    return structuredClone(preview);
+  }
+  async generateExplanation(previewId: string, signal?: AbortSignal): Promise<FileExplanation> {
+    const preview = this.previews.get(previewId);
+    if (!preview) throw new Error('Preview expired. Prepare another preview before generation.');
+    const current = await this.getFile(preview.repositoryPath, preview.filePath);
+    const source = preview.files[0];
+    if ((source.version === 'current' ? current.current : current.previous)?.hash !== source.hash) throw new Error('Source changed since preview. Prepare a new preview.');
+    const apiKey = this.options.apiKey ?? process.env.OPENROUTER_API_KEY;
+    if (!apiKey) throw new Error('Set OPENROUTER_API_KEY in the local server .env file, then retry.');
+    if (preview.functions.length === 0) throw new Error('No named functions found in this file. Source remains available.');
+    const result = await (this.options.transport ?? openRouterTransport)(structuredClone(preview), { apiKey, signal });
+    const invalid = () => new Error('Invalid explanation or source references. Retry generation; source remains available.');
+    const value = result.content as any;
+    if (!value || !Array.isArray(value.functions) || value.functions.length !== preview.functions.length || Object.keys(value).some(key => key !== 'functions')) throw invalid();
+    const seen = new Set<string>();
+    const functions = value.functions.map((item: any) => {
+      const fn = preview.functions.find(fn => fn.id === item?.id);
+      if (!fn || item.name !== fn.name || seen.has(fn.id) || !Array.isArray(item.statements) || !item.statements.length || Object.keys(item).some(key => !['id', 'name', 'statements'].includes(key))) throw invalid();
+      seen.add(fn.id);
+      const statements = item.statements.map((statement: any) => {
+        if (!statement || typeof statement.text !== 'string' || !statement.text.trim() || !(statement.uncertainty === null || typeof statement.uncertainty === 'string') || !Number.isInteger(statement.startLine) || !Number.isInteger(statement.endLine) || statement.startLine < fn.startLine || statement.endLine > fn.endLine || statement.startLine > statement.endLine || Object.keys(statement).some(key => !['text', 'startLine', 'endLine', 'uncertainty'].includes(key))) throw invalid();
+        return { text: statement.text, uncertainty: statement.uncertainty, reference: { path: source.path, version: source.version, sourceHash: source.hash, startLine: statement.startLine, endLine: statement.endLine } };
+      });
+      return { ...fn, statements };
+    });
+    return { previewId, model: preview.model, functions, files: structuredClone(preview.files) };
+  }
+
   async openRepository(repositoryPath: string): Promise<RepositoryReview> {
     let root: string;
     try {

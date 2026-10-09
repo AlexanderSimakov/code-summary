@@ -3,12 +3,15 @@ import { createRoot } from 'react-dom/client';
 import type { FileReview, RepositoryReview } from '../shared/review.js';
 import { api } from './api.js';
 import './style.css';
+import { ExplanationPanel } from './ExplanationPanel.js';
+import type { SourceReference } from '../shared/explanation.js';
 
 function App() {
   const [path, setPath] = useState('');
   const [repository, setRepository] = useState<RepositoryReview | null>(null);
   const [file, setFile] = useState<FileReview | null>(null);
   const [view, setView] = useState<'source' | 'diff' | 'previous'>('source');
+  const [highlight, setHighlight] = useState<SourceReference | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const request = useRef(0);
@@ -30,7 +33,7 @@ function App() {
     try {
       const next = await api<FileReview>('file', { repositoryPath: repository.root, filePath });
       if (id !== request.current) return;
-      setFile(next); setView(next.current ? 'source' : 'previous');
+      setFile(next); setHighlight(null); setView(next.current ? 'source' : 'previous');
     } catch (error) { if (id === request.current) setError((error as Error).message); }
     finally { if (id === request.current) setLoading(false); }
   }
@@ -43,8 +46,8 @@ function App() {
     {repository && <><div className="repo-heading"><strong>{repository.root}</strong><span>{repository.head ? 'Working tree vs HEAD' : 'No commits yet'}</span></div>
       {repository.changedFiles.length === 0 && <p className="clean">No changes against HEAD</p>}
       <div className="workspace"><nav aria-label="Repository files"><h2>Files <span>{repository.files.length}</span></h2>{repository.files.map(item => <button key={item.path} onClick={() => select(item.path)} className={file?.path === item.path ? 'selected' : ''}><span>{item.path}</span><small>{item.status}</small></button>)}</nav>
-      <main><section className="explanations" aria-label="English explanations"><h2>English review</h2><div className="empty"><span className="empty-icon">≋</span><h3>{file ? 'Source ready to explore' : 'Choose a file to begin'}</h3><p>{file ? 'Function explanations will appear here in the next milestone. Source browsing needs no API key.' : 'Browse files and inspect changes against the latest commit.'}</p>{file && !file.supported && <p>This file is unsupported for explanations. Source remains available.</p>}</div></section>
-      <section className="source" aria-label="Source pane"><div className="source-heading"><h2>{file?.path ?? 'Source'}</h2>{file && <div className="tabs"><button aria-pressed={view === 'source'} disabled={!file.current} onClick={() => setView('source')}>Current source</button><button aria-pressed={view === 'previous'} disabled={!file.previous} onClick={() => setView('previous')}>Previous source</button><button aria-pressed={view === 'diff'} onClick={() => setView('diff')}>Git diff</button></div>}</div>{file?.notice && <p>{file.notice}</p>}{file ? source ? <pre aria-label="Source code">{source.split('\n').map((line, index) => <div key={index} className={view === 'diff' ? line.startsWith('+') ? 'addition' : line.startsWith('-') ? 'removal' : '' : ''}><span className="line-number">{index + 1}</span><code>{line || ' '}</code></div>)}</pre> : <p className="empty">{view === 'diff' ? 'No source changes against HEAD.' : 'No source text available.'}</p> : <p className="empty">Select a file to view its source.</p>}</section></main></div></>}
+      <main><ExplanationPanel file={file} onSelect={reference => { setHighlight(reference); setView(reference.version === 'previous' ? 'previous' : 'source'); requestAnimationFrame(() => document.getElementById(`source-line-${reference.startLine}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' })); }} />
+      <section className="source" aria-label="Source pane"><div className="source-heading"><h2>{file?.path ?? 'Source'}</h2>{file && <div className="tabs"><button aria-pressed={view === 'source'} disabled={!file.current} onClick={() => setView('source')}>Current source</button><button aria-pressed={view === 'previous'} disabled={!file.previous} onClick={() => setView('previous')}>Previous source</button><button aria-pressed={view === 'diff'} onClick={() => setView('diff')}>Git diff</button></div>}</div>{file?.notice && <p>{file.notice}</p>}{file ? source ? <pre aria-label="Source code">{source.split('\n').map((line, index) => <div id={`source-line-${index + 1}`} key={index} className={view === 'diff' ? line.startsWith('+') ? 'addition' : line.startsWith('-') ? 'removal' : '' : highlight && highlight.version === (view === 'previous' ? 'previous' : 'current') && index + 1 >= highlight.startLine && index + 1 <= highlight.endLine ? 'source-highlight' : ''}><span className="line-number">{index + 1}</span><code>{line || ' '}</code></div>)}</pre> : <p className="empty">{view === 'diff' ? 'No source changes against HEAD.' : 'No source text available.'}</p> : <p className="empty">Select a file to view its source.</p>}</section></main></div></>}
     {!repository && <div className="welcome"><h2>Your repository, explained.</h2><p>Open a local Git folder to review staged and unstaged changes together. Your repository stays read-only.</p></div>}
   </div>;
 }

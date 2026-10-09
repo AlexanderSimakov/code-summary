@@ -27,12 +27,15 @@ export function createReviewServer(service = new ReviewService()) {
     const host = request.headers.host ?? '';
     if (!/^127\.0\.0\.1:\d+$/.test(host) && !/^localhost:\d+$/.test(host)) return json(response, 403, { error: 'Local access only.' });
     const origin = request.headers.origin;
-    if (origin && ![ `http://${host}`, 'http://127.0.0.1:5173', 'http://localhost:5173' ].includes(origin)) return json(response, 403, { error: 'Local origin required.' });
+    if (origin && ![ `http://${host}`, `http://127.0.0.1:${process.env.E2E_PORT ?? 5173}`, `http://localhost:${process.env.E2E_PORT ?? 5173}` ].includes(origin)) return json(response, 403, { error: 'Local origin required.' });
     try {
       const url = new URL(request.url ?? '/', `http://${host}`);
       if (url.pathname.startsWith('/api/')) {
         if (request.method !== 'POST') return json(response, 405, { error: 'POST required.' });
         const input = await body(request);
+        if (url.pathname === '/api/settings') return json(response, 200, service.getSettings());
+        if (url.pathname === '/api/analysis/preview') return json(response, 200, await service.prepareAnalysis(string(input.repositoryPath), string(input.filePath), input.model === undefined ? undefined : string(input.model)));
+        if (url.pathname === '/api/analysis/generate') return json(response, 200, await service.generateExplanation(string(input.previewId)));
         if (url.pathname === '/api/repository') return json(response, 200, await service.openRepository(string(input.path)));
         if (url.pathname === '/api/file') return json(response, 200, await service.getFile(string(input.repositoryPath), string(input.filePath)));
         return json(response, 404, { error: 'Unknown operation.' });
