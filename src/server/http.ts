@@ -41,6 +41,10 @@ export function createReviewServer(service = new ReviewService()) {
           try { return json(response, 200, await service.generateComparison(string(input.previewId), controller.signal)); }
           finally { response.off('close', disconnected); }
         }
+        if (url.pathname === '/api/analysis/freshness') return json(response, 200, await service.getAnalysisFreshness(string(input.previewId)));
+        if (url.pathname === '/api/comparison/freshness') return json(response, 200, await service.getComparisonFreshness(string(input.previewId)));
+        if (url.pathname === '/api/analysis/cache') return json(response, 200, await service.getCachedAnalysis(string(input.repositoryPath), string(input.filePath), input.model === undefined ? undefined : string(input.model), { contextLimitBytes: input.contextLimitBytes === undefined ? undefined : Number(input.contextLimitBytes) }));
+        if (url.pathname === '/api/comparison/cache') return json(response, 200, await service.getCachedComparison(string(input.repositoryPath), string(input.filePath), input.model === undefined ? undefined : string(input.model), { contextLimitBytes: input.contextLimitBytes === undefined ? undefined : Number(input.contextLimitBytes) }));
         if (url.pathname === '/api/settings') return json(response, 200, service.getSettings());
         if (url.pathname === '/api/analysis/preview') return json(response, 200, await service.prepareAnalysis(string(input.repositoryPath), string(input.filePath), input.model === undefined ? undefined : string(input.model), { version: input.version === 'previous' || input.version === 'current' ? input.version : undefined, contextLimitBytes: input.contextLimitBytes === undefined ? undefined : Number(input.contextLimitBytes) }));
         if (url.pathname === '/api/analysis/cancel') return json(response, 200, { cancelled: service.cancelGeneration(string(input.previewId)) });

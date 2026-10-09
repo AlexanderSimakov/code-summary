@@ -5,6 +5,7 @@ import { lstat, readFile, readlink, realpath } from 'node:fs/promises';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import type { FileReview, FileStatus, RepositoryReview, ReviewFile, SourceSnapshot } from '../shared/review.js';
 
+import { ExplanationCache, analysisIdentity } from './explanation-cache.js';
 import { compareExplanations } from './comparison.js';
 import type { ComparisonPreview, FileComparison } from '../shared/comparison.js';
 import { collectContext, defaultContextLimitBytes } from './context.js';
@@ -28,13 +29,14 @@ function snapshot(version: SourceSnapshot['version'], content: string): SourceSn
 }
 
 /** Public application seam. Reads Git objects and local files; never executes target code. */
-export interface ReviewServiceOptions { apiKey?: string; model?: string; transport?: AITransport }
+export interface ReviewServiceOptions { apiKey?: string; model?: string; transport?: AITransport; cacheDirectory?: string }
 export class ReviewService {
   private pending = new Map<string, { previewId: string; controller: AbortController }>();
   private comparisons = new Map<string, ComparisonPreview>();
   private previews = new Map<string, AnalysisPreview>();
   private options: ReviewServiceOptions;
-  constructor(options: ReviewServiceOptions = {}) { this.options = options; }
+  private cache: ExplanationCache;
+  constructor(options: ReviewServiceOptions = {}) { this.options = options; this.cache = new ExplanationCache(options.cacheDirectory); }
   getSettings(): ModelSettings {
     return { model: this.options.model ?? process.env.OPENROUTER_MODEL ?? 'openai/gpt-4.1-mini', configured: Boolean(this.options.apiKey ?? process.env.OPENROUTER_API_KEY) };
   }
@@ -73,6 +75,37 @@ export class ReviewService {
     // A bounded session store avoids retaining arbitrary amounts of source indefinitely.
     if (this.previews.size > 100) this.previews.delete(this.previews.keys().next().value!);
     return structuredClone(preview);
+  }
+  async getAnalysisFreshness(previewId: string): Promise<{ outdated: boolean }> {
+    const preview = this.previews.get(previewId);
+    if (!preview) return { outdated: true };
+    try {
+      const latest = await this.prepareAnalysis(preview.repositoryPath, preview.filePath, preview.model, {
+        version: preview.files[0]?.version, contextLimitBytes: preview.contextLimitBytes,
+      });
+      this.previews.delete(latest.id);
+      return { outdated: analysisIdentity(latest) !== analysisIdentity(preview) };
+    } catch { return { outdated: true }; }
+  }
+  async getCachedAnalysis(repositoryPath: string, filePath: string, model = this.getSettings().model, options: { version?: SourceSnapshot['version']; contextLimitBytes?: number } = {}) {
+    const preview = await this.prepareAnalysis(repositoryPath, filePath, model, options);
+    return { preview, explanation: await this.cache.get(preview) };
+  }
+  async getComparisonFreshness(previewId: string): Promise<{ outdated: boolean }> {
+    const preview = this.comparisons.get(previewId);
+    if (!preview) return { outdated: true };
+    try {
+      const file = await this.getFile(preview.repositoryPath, preview.filePath);
+      if (file.current?.hash !== preview.current?.files[0]?.hash || file.previous?.hash !== preview.previous?.files[0]?.hash) return { outdated: true };
+      for (const side of [preview.previous, preview.current]) if (side && (await this.getAnalysisFreshness(side.id)).outdated) return { outdated: true };
+      return { outdated: false };
+    } catch { return { outdated: true }; }
+  }
+  async getCachedComparison(repositoryPath: string, filePath: string, model = this.getSettings().model, options: { contextLimitBytes?: number } = {}) {
+    const preview = await this.prepareComparison(repositoryPath, filePath, model, options);
+    const previous = preview.previous ? await this.cache.get(preview.previous) : null;
+    const current = preview.current ? await this.cache.get(preview.current) : null;
+    return { preview, comparison: (preview.previous && !previous) || (preview.current && !current) ? null : compareExplanations(preview.id, previous, current) };
   }
   async generateExplanation(previewId: string, signal?: AbortSignal): Promise<FileExplanation> {
     const preview = this.previews.get(previewId);
@@ -116,6 +149,9 @@ export class ReviewService {
       const current = await this.getFile(preview.repositoryPath, transmitted.path);
       if ((transmitted.version === 'current' ? current.current : current.previous)?.hash !== transmitted.hash) throw new Error(`${transmitted.path === preview.filePath ? 'Source' : 'Context'} changed since preview. Prepare a new preview.`);
     }
+    if ((await this.getAnalysisFreshness(preview.id)).outdated) throw new Error('Context changed since preview. Prepare a new preview.');
+    const cached = await this.cache.get(preview);
+    if (cached) { signal.throwIfAborted(); return cached; }
     const apiKey = this.options.apiKey ?? process.env.OPENROUTER_API_KEY;
     if (!apiKey) throw new Error('Set OPENROUTER_API_KEY in the local server .env file, then retry.');
     if (preview.functions.length === 0) throw new Error('No explainable source units found in this file. Source remains available.');
@@ -142,7 +178,12 @@ export class ReviewService {
       const value = reported?.[upstream];
       if (typeof value === 'number' && Number.isFinite(value) && value >= 0 && (field === 'cost' || Number.isInteger(value))) usage[field] = value;
     }
-    return { usage, previewId, model: preview.model, functions, files: structuredClone(preview.files), contextWarnings: preview.contextWarnings };
+    const explanation = { usage, previewId, model: preview.model, functions, files: structuredClone(preview.files), contextWarnings: preview.contextWarnings };
+    // Results always describe the approved immutable snapshots, including if edits occurred in flight.
+    signal.throwIfAborted();
+    await this.cache.put(preview, explanation);
+    signal.throwIfAborted();
+    return explanation;
   }
 
   async prepareComparison(repositoryPath: string, filePath: string, model = this.getSettings().model, options: { contextLimitBytes?: number } = {}): Promise<ComparisonPreview> {

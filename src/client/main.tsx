@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { FileReview, RepositoryReview } from '../shared/review.js';
 import { api } from './api.js';
@@ -13,6 +13,21 @@ function App() {
   const [file, setFile] = useState<FileReview | null>(null);
   const [view, setView] = useState<'source' | 'diff' | 'previous'>('source');
   const [highlight, setHighlight] = useState<SourceReference | null>(null);
+  const [outdated, setOutdated] = useState(false);
+  const markOutdated = React.useCallback(() => setOutdated(true), []);
+  useEffect(() => {
+    setOutdated(false);
+    if (!file) return;
+    let active = true;
+    const check = async () => {
+      try {
+        const latest = await api<FileReview>('file', { repositoryPath: file.repositoryPath, filePath: file.path });
+        if (active && (latest.current?.hash !== file.current?.hash || latest.previous?.hash !== file.previous?.hash || latest.notice !== file.notice)) setOutdated(true);
+      } catch { if (active) setOutdated(true); }
+    };
+    const timer = setInterval(check, 1500);
+    return () => { active = false; clearInterval(timer); };
+  }, [file]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const request = useRef(0);
@@ -47,7 +62,7 @@ function App() {
     {repository && <><div className="repo-heading"><strong>{repository.root}</strong><span>{repository.head ? 'Working tree vs HEAD' : 'No commits yet'}</span></div>
       {repository.changedFiles.length === 0 && <p className="clean">No changes against HEAD</p>}
       <div className="workspace"><nav aria-label="Repository files"><h2>Files <span>{repository.files.length}</span></h2>{repository.files.map(item => <button key={item.path} onClick={() => select(item.path)} className={file?.path === item.path ? 'selected' : ''}><span>{item.path}</span><small>{item.status}</small></button>)}</nav>
-      <main>{file && file.status !== 'unchanged' ? <ComparisonPanel file={file} onSelect={reference => { setHighlight(reference); setView(reference.version === 'previous' ? 'previous' : 'source'); requestAnimationFrame(() => document.getElementById(`source-line-${reference.startLine}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' })); }} /> : <ExplanationPanel file={file} onSelect={reference => { setHighlight(reference); setView(reference.version === 'previous' ? 'previous' : 'source'); requestAnimationFrame(() => document.getElementById(`source-line-${reference.startLine}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' })); }} />}
+      <main>{outdated && <div role="status">Review outdated. Source or context changed; the visible review is retained. <button onClick={() => file && select(file.path)}>Refresh review</button></div>}{file && file.status !== 'unchanged' ? <ComparisonPanel file={file} outdated={outdated} onOutdated={markOutdated} onSelect={reference => { setHighlight(reference); setView(reference.version === 'previous' ? 'previous' : 'source'); requestAnimationFrame(() => document.getElementById(`source-line-${reference.startLine}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' })); }} /> : <ExplanationPanel file={file} outdated={outdated} onOutdated={markOutdated} onSelect={reference => { setHighlight(reference); setView(reference.version === 'previous' ? 'previous' : 'source'); requestAnimationFrame(() => document.getElementById(`source-line-${reference.startLine}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' })); }} />}
       <section className="source" aria-label="Source pane"><div className="source-heading"><h2>{file?.path ?? 'Source'}</h2>{file && <div className="tabs"><button aria-pressed={view === 'source'} disabled={!file.current} onClick={() => setView('source')}>Current source</button><button aria-pressed={view === 'previous'} disabled={!file.previous} onClick={() => setView('previous')}>Previous source</button><button aria-pressed={view === 'diff'} onClick={() => setView('diff')}>Git diff</button></div>}</div>{file?.notice && <p>{file.notice}</p>}{file ? source ? <pre aria-label="Source code">{source.split('\n').map((line, index) => <div id={`source-line-${index + 1}`} key={index} className={view === 'diff' ? line.startsWith('+') ? 'addition' : line.startsWith('-') ? 'removal' : '' : highlight && highlight.version === (view === 'previous' ? 'previous' : 'current') && index + 1 >= highlight.startLine && index + 1 <= highlight.endLine ? 'source-highlight' : ''}><span className="line-number">{index + 1}</span><code>{line || ' '}</code></div>)}</pre> : <p className="empty">{view === 'diff' ? 'No source changes against HEAD.' : 'No source text available.'}</p> : <p className="empty">Select a file to view its source.</p>}</section></main></div></>}
     {!repository && <div className="welcome"><h2>Your repository, explained.</h2><p>Open a local Git folder to review staged and unstaged changes together. Your repository stays read-only.</p></div>}
   </div>;
