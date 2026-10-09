@@ -18,3 +18,7 @@ export interface FileReview extends ReviewFile {
   diff: string;
   notice?: string;
 }
+
+export interface RecentProject { path: string; name: string }
+export interface RecentProjectsResult { projects: RecentProject[]; warning?: string }
+export interface OpenedProject extends RepositoryReview { history: RecentProjectsResult }
