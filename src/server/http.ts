@@ -33,6 +33,14 @@ export function createReviewServer(service = new ReviewService()) {
       if (url.pathname.startsWith('/api/')) {
         if (request.method !== 'POST') return json(response, 405, { error: 'POST required.' });
         const input = await body(request);
+        if (url.pathname === '/api/comparison/preview') return json(response, 200, await service.prepareComparison(string(input.repositoryPath), string(input.filePath), input.model === undefined ? undefined : string(input.model)));
+        if (url.pathname === '/api/comparison/generate') {
+          const controller = new AbortController();
+          const disconnected = () => { if (!response.writableEnded) controller.abort(); };
+          response.on('close', disconnected);
+          try { return json(response, 200, await service.generateComparison(string(input.previewId), controller.signal)); }
+          finally { response.off('close', disconnected); }
+        }
         if (url.pathname === '/api/settings') return json(response, 200, service.getSettings());
         if (url.pathname === '/api/analysis/preview') return json(response, 200, await service.prepareAnalysis(string(input.repositoryPath), string(input.filePath), input.model === undefined ? undefined : string(input.model)));
         if (url.pathname === '/api/analysis/generate') return json(response, 200, await service.generateExplanation(string(input.previewId)));
