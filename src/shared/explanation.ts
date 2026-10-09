@@ -1,0 +1,12 @@
+import type { SourceSnapshot } from './review.js';
+export interface AnalysisFile extends SourceSnapshot { path: string }
+export interface AnalysisFunction { id: string; name: string; startLine: number; endLine: number }
+export interface AnalysisPreview {
+  id: string; repositoryPath: string; filePath: string; model: string;
+  files: AnalysisFile[]; functions: AnalysisFunction[];
+}
+export interface SourceReference { path: string; version: SourceSnapshot['version']; sourceHash: string; startLine: number; endLine: number }
+export interface ExplanationStatement { text: string; uncertainty: string | null; reference: SourceReference }
+export interface FunctionExplanation extends AnalysisFunction { statements: ExplanationStatement[] }
+export interface FileExplanation { previewId: string; model: string; functions: FunctionExplanation[]; files: AnalysisFile[] }
+export interface ModelSettings { model: string; configured: boolean }
