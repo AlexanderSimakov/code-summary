@@ -17,7 +17,7 @@ test('English diff previews both versions, preserves unchanged wording and links
       const previous = request.files[0].version === 'previous';
       return { content: { functions: [{ id: request.functions[0].id, name: request.functions[0].name, startLine: undefined, endLine: undefined,
         statements: [
-          { text: 'Validates input.', startLine: 2, endLine: 2, uncertainty: null },
+          { text: previous ? 'Validates input.' : 'Checks the input.', startLine: 2, endLine: 2, uncertainty: null },
           { text: previous ? 'Retries three times.' : 'Retries five times.', startLine: 3, endLine: 3, uncertainty: null },
           ...(previous ? [{ text: 'Runs the old task.', startLine: 4, endLine: 4, uncertainty: null }] : []),
         ],
@@ -136,5 +136,18 @@ test('dependency-only changes update English behavior and comparison cache witho
     assert.equal((await service.getCachedComparison(repo.path, 'main.ts')).comparison, null);
     assert.equal(calls, 2);
     assert.equal(attempts.statements[0].current!.text, 'Returns the retry limit of five.');
+  } finally { await repo.cleanup(); }
+});
+
+test('changed local callee does not preserve stale wording in an unchanged caller', async () => {
+  const repo = await fixture();
+  try {
+    await writeFile(join(repo.path, 'main.ts'), 'export function read() { return helper(); }\nfunction helper() { return 3; }\n');
+    repo.git('add', '.'); repo.git('commit', '-qm', 'baseline');
+    await writeFile(join(repo.path, 'main.ts'), 'export function read() { return helper(); }\nfunction helper() { return 5; }\n');
+    const service = new ReviewService({ apiKey: 'test', transport: async request => ({ content: { functions: request.functions.map(fn => ({ id: fn.id, name: fn.name, statements: [{ text: request.files[0].version === 'previous' ? 'Returns three.' : 'Returns five.', startLine: fn.startLine, endLine: fn.endLine, uncertainty: null }] })) } }) });
+    const result = await service.generateComparison((await service.prepareComparison(repo.path, 'main.ts')).id);
+    assert.equal(result.functions[0].statements[0].change, 'modified');
+    assert.equal(result.functions[0].statements[0].current!.text, 'Returns five.');
   } finally { await repo.cleanup(); }
 });

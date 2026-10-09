@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile, readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fixture } from './fixture.js';
@@ -73,5 +73,29 @@ test('source and context limit changes miss cache while an in-flight result stay
     const limited = await service.prepareAnalysis(repo.path, 'main.ts', undefined, { contextLimitBytes: 1000 });
     await service.generateExplanation(limited.id);
     assert.equal(requests, 3);
+  } finally { await repo.cleanup(); await rm(cacheDirectory, { recursive: true, force: true }); }
+});
+
+
+test('tampered cached punctuation-only references are rejected before showing an explanation', async () => {
+  const repo = await fixture(); const cacheDirectory = await mkdtemp(join(tmpdir(), 'explanation-cache-'));
+  let requests = 0;
+  const options = { cacheDirectory, apiKey: 'test', transport: async (preview: any) => {
+    requests++;
+    return { content: { functions: preview.functions.map((fn: any) => ({ id: fn.id, name: fn.name, statements: [{ text: 'Returns 42.', startLine: 2, endLine: 2, uncertainty: null }] })) } };
+  } };
+  try {
+    await writeFile(join(repo.path, 'sample.ts'), 'export function sample() {\n  return 42;\n}\n');
+    const service = new ReviewService(options);
+    await service.generateExplanation((await service.prepareAnalysis(repo.path, 'sample.ts')).id);
+    const savedPath = join(cacheDirectory, (await readdir(cacheDirectory))[0]);
+    const saved = JSON.parse(await readFile(savedPath, 'utf8'));
+    saved.result.functions[0].statements[0].reference.startLine = 3;
+    saved.result.functions[0].statements[0].reference.endLine = 3;
+    await writeFile(savedPath, JSON.stringify(saved));
+    const restarted = new ReviewService(options);
+    assert.equal((await restarted.getCachedAnalysis(repo.path, 'sample.ts')).explanation, null);
+    await restarted.generateExplanation((await restarted.prepareAnalysis(repo.path, 'sample.ts')).id);
+    assert.equal(requests, 2);
   } finally { await repo.cleanup(); await rm(cacheDirectory, { recursive: true, force: true }); }
 });

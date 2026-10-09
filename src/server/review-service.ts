@@ -1,3 +1,4 @@
+import { validExplanationFunctions } from './explanation-validation.js';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { randomUUID, createHash } from 'node:crypto';
@@ -161,18 +162,15 @@ export class ReviewService {
     const invalid = () => new Error('Invalid explanation or source references. Retry generation; source remains available.');
     const value = result.content as any;
     if (!value || !Array.isArray(value.functions) || value.functions.length !== preview.functions.length || Object.keys(value).some(key => key !== 'functions')) throw invalid();
-    const seen = new Set<string>();
     const functions = value.functions.map((item: any) => {
       const fn = preview.functions.find(fn => fn.id === item?.id);
-      if (!fn || item.name !== fn.name || seen.has(fn.id) || !Array.isArray(item.statements) || !item.statements.length || Object.keys(item).some(key => !['id', 'name', 'statements'].includes(key))) throw invalid();
-      seen.add(fn.id);
-      const statements = item.statements.map((statement: any) => {
-        if (!statement || typeof statement.text !== 'string' || !statement.text.trim() || !(statement.uncertainty === null || typeof statement.uncertainty === 'string') || !Number.isInteger(statement.startLine) || !Number.isInteger(statement.endLine) || statement.startLine < fn.startLine || statement.endLine > fn.endLine || statement.startLine > statement.endLine || Object.keys(statement).some(key => !['text', 'startLine', 'endLine', 'uncertainty'].includes(key))) throw invalid();
-        if (!/[^\s{}()[\];,]/.test(source.content.split('\n').slice(statement.startLine - 1, statement.endLine).join('\n'))) throw invalid();
+      if (!fn || !Array.isArray(item.statements) || Object.keys(item).some(key => !['id', 'name', 'statements'].includes(key))) throw invalid();
+      return { ...fn, name: item.name, statements: item.statements.map((statement: any) => {
+        if (!statement || Object.keys(statement).some(key => !['text', 'startLine', 'endLine', 'uncertainty'].includes(key))) throw invalid();
         return { text: statement.text, uncertainty: statement.uncertainty, reference: { path: source.path, version: source.version, sourceHash: source.hash, startLine: statement.startLine, endLine: statement.endLine } };
-      });
-      return { ...fn, statements };
+      }) };
     });
+    if (!validExplanationFunctions(preview, functions)) throw invalid();
     const reported = result.usage as Record<string, unknown> | undefined;
     const usage: GenerationUsage = {};
     for (const [field, upstream] of [['promptTokens', 'prompt_tokens'], ['completionTokens', 'completion_tokens'], ['totalTokens', 'total_tokens'], ['cost', 'cost']] as const) {
