@@ -53,8 +53,8 @@ export function ComparisonPanel({ file, onSelect }: { file: FileReview; onSelect
         {comparison.current && <section aria-label="Current AI usage"><h3>Current</h3><UsageReport usage={comparison.current.usage} /></section>}
         {comparison.assessment && <p className="assessment">AI assessment: {comparison.assessment}. This is not proof of equivalence; inspect Git diff.</p>}
         <p className="uncertainty">{comparison.uncertainty}</p>
-        {comparison.functions.length === 0 && <p>No named functions to compare. Source changes remain available in Git diff.</p>}
-        {comparison.functions.map((fn, index) => <article className="function-explanation" key={`${fn.name}:${index}`}><h3>{fn.name}</h3>{fn.statements.map((statement, index) => <div key={index} className={`statement-change ${statement.change}`}><small>{statement.change}</small>
+        {comparison.functions.length === 0 && <p>No explainable source units to compare. Source changes remain available in Git diff.</p>}
+        {comparison.functions.map((fn, index) => <article className="function-explanation" key={`${fn.name}:${index}`}><h3>{fn.name || fn.displayName || 'Anonymous source unit'}</h3>{fn.statements.map((statement, index) => <div key={index} className={`statement-change ${statement.change}`}><small>{statement.change}</small>
           {statement.previous && statement.change !== 'unchanged' && <button className="statement" onClick={() => onSelect(statement.previous!.reference)}>− {statement.previous.text}</button>}
           {statement.current && <button className="statement" onClick={() => onSelect(statement.current!.reference)}>{statement.change === 'unchanged' ? '' : '+ '}{statement.current.text}</button>}
           {(statement.current?.uncertainty || statement.previous?.uncertainty) && <p className="uncertainty">Uncertain: {statement.current?.uncertainty || statement.previous?.uncertainty}</p>}

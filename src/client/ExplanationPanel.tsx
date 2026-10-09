@@ -43,14 +43,14 @@ export function ExplanationPanel({ file, onSelect }: { file: FileReview | null; 
       <button onClick={prepare} disabled={busy || generation.pending}>Preview transmission</button>
       {preview && <div className="transmission" aria-label="Transmission preview"><h3>Source sent to OpenRouter</h3><p>Model: {preview.model}. Opening this preview sends nothing.</p>
         {preview.files.map(source => <details key={`${source.path}:${source.version}`}><summary>{source.path} · {source.version}</summary><pre>{source.content}</pre></details>)}
-        <p>Includes {preview.functions.length} complete named functions. Source is sent only when you generate.</p>
+        <p>Includes {preview.functions.length} source units (functions, declarations and module behavior). Source is sent only when you generate.</p>
         <button onClick={generate} disabled={busy || generation.pending}>{error ? 'Retry generation' : 'Generate explanations'}</button>
       </div>}
       {busy && <p role="status">Preparing transmission preview…</p>}
       {generation.pending && <div><p role="status">Generating explanations…</p><button onClick={() => { generation.cancel(); setError('Generation cancelled. Provider charges may still apply.'); }}>Cancel generation</button></div>}
       {explanation && <UsageReport usage={explanation.usage} />}
       {error && <p role="alert" className="error">{error}</p>}
-      {explanation?.functions.map(fn => <article className="function-explanation" key={fn.id}><h3>{fn.name}</h3>{fn.statements.map((statement, index) => <div key={index}><button className="statement" onClick={() => onSelect(statement.reference)}>{statement.text}</button>{statement.uncertainty && <p className="uncertainty">Uncertain: {statement.uncertainty}</p>}</div>)}</article>)}
+      {explanation?.functions.map(fn => <article className="function-explanation" key={fn.id}><h3>{fn.name || fn.displayName || 'Anonymous source unit'}</h3>{fn.statements.map((statement, index) => <div key={index}><button className="statement" onClick={() => onSelect(statement.reference)}>{statement.text}</button>{statement.uncertainty && <p className="uncertainty">Uncertain: {statement.uncertainty}</p>}</div>)}</article>)}
     </>}
   </section>;
 }

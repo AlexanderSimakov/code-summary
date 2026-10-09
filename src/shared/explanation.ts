@@ -1,6 +1,6 @@
 import type { SourceSnapshot } from './review.js';
 export interface AnalysisFile extends SourceSnapshot { path: string }
-export interface AnalysisFunction { id: string; name: string; startLine: number; endLine: number }
+export interface AnalysisFunction { id: string; name: string; startLine: number; endLine: number; kind?: 'function' | 'module' | 'class' | 'type' | 'constant' | 'variable' | 'anonymous' | 'enum'; displayName?: string }
 export interface AnalysisPreview {
   id: string; repositoryPath: string; filePath: string; model: string;
   files: AnalysisFile[]; functions: AnalysisFunction[];

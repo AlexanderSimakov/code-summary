@@ -12,8 +12,8 @@ export function compareExplanations(previewId: string, previous: FileExplanation
   const available = [...(previous?.functions ?? [])];
   for (const fn of current?.functions ?? []) {
     // Ambiguous duplicate names are deliberately not guessed across different scopes.
-    const candidates = available.filter(old => old.name === fn.name);
-    const old = candidates.length === 1 && current!.functions.filter(item => item.name === fn.name).length === 1 ? candidates[0] : undefined;
+    const candidates = available.filter(old => old.name === fn.name && old.kind === fn.kind);
+    const old = candidates.length === 1 && current!.functions.filter(item => item.name === fn.name && item.kind === fn.kind).length === 1 ? candidates[0] : undefined;
     if (old) available.splice(available.indexOf(old), 1);
     const statements: StatementComparison[] = [];
     const unmatched = [...(old?.statements ?? [])];
@@ -37,9 +37,9 @@ export function compareExplanations(previewId: string, previous: FileExplanation
       }
     }
     statements.push(...unmatched.map(statement => ({ change: 'removed' as const, previous: statement, current: null })));
-    functions.push({ name: fn.name, statements });
+    functions.push({ name: fn.name, kind: fn.kind, displayName: fn.displayName, statements });
   }
-  for (const fn of available) functions.push({ name: fn.name, statements: fn.statements.map(statement => ({ change: 'removed', previous: statement, current: null })) });
+  for (const fn of available) functions.push({ name: fn.name, kind: fn.kind, displayName: fn.displayName, statements: fn.statements.map(statement => ({ change: 'removed', previous: statement, current: null })) });
   const sourceChanged = previous?.files[0]?.hash !== current?.files[0]?.hash;
   const allUnchanged = functions.length > 0 && functions.every(fn => fn.statements.every(statement => statement.change === 'unchanged'));
   return { previewId, functions, previous, current, files: [...(previous?.files ?? []), ...(current?.files ?? [])],

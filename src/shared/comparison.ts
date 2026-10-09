@@ -7,7 +7,7 @@ export interface StatementComparison {
   change: 'added' | 'removed' | 'modified' | 'unchanged';
   previous: ExplanationStatement | null; current: ExplanationStatement | null;
 }
-export interface FunctionComparison { name: string; statements: StatementComparison[] }
+export interface FunctionComparison { name: string; displayName?: string; kind?: AnalysisPreview['functions'][number]['kind']; statements: StatementComparison[] }
 export interface FileComparison {
   previewId: string; functions: FunctionComparison[]; files: AnalysisFile[];
   previous: FileExplanation | null; current: FileExplanation | null;
