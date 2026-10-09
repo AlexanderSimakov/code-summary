@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import type { AnalysisPreview, FileExplanation } from '../shared/explanation.js';
 
 // Bump when parser, prompt, output schema or context selection behavior changes.
-const generationRevision = 'ts5.9-source-units-v2-context-v1-prompt-v2-schema-v2';
+const generationRevision = 'ts5.9-source-units-v2-context-v1-prompt-v4-schema-v2-uncertainty-v2';
 export function analysisIdentity(preview: AnalysisPreview): string {
   return createHash('sha256').update(JSON.stringify({ generationRevision,
     repository: preview.repositoryPath, path: preview.filePath, model: preview.model,

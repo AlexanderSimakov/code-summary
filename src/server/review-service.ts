@@ -168,7 +168,8 @@ export class ReviewService {
       seen.add(fn.id);
       const statements = item.statements.map((statement: any) => {
         if (!statement || typeof statement.text !== 'string' || !statement.text.trim() || !(statement.uncertainty === null || typeof statement.uncertainty === 'string') || !Number.isInteger(statement.startLine) || !Number.isInteger(statement.endLine) || statement.startLine < fn.startLine || statement.endLine > fn.endLine || statement.startLine > statement.endLine || Object.keys(statement).some(key => !['text', 'startLine', 'endLine', 'uncertainty'].includes(key))) throw invalid();
-        return { text: statement.text, uncertainty: [statement.uncertainty, ...(preview.contextWarnings ?? [])].filter(Boolean).join(' ') || null, reference: { path: source.path, version: source.version, sourceHash: source.hash, startLine: statement.startLine, endLine: statement.endLine } };
+        if (!/[^\s{}()[\];,]/.test(source.content.split('\n').slice(statement.startLine - 1, statement.endLine).join('\n'))) throw invalid();
+        return { text: statement.text, uncertainty: statement.uncertainty, reference: { path: source.path, version: source.version, sourceHash: source.hash, startLine: statement.startLine, endLine: statement.endLine } };
       });
       return { ...fn, statements };
     });

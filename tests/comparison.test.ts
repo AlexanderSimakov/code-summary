@@ -104,3 +104,37 @@ test('rephrasing an unchanged function keeps its baseline wording despite nearby
     assert.equal(result.functions[0].statements[0].current!.text, 'Returns 42.');
   } finally { await repo.cleanup(); }
 });
+
+test('dependency-only changes update English behavior and comparison cache without rewriting the reviewed function', async () => {
+  const repo = await fixture();
+  try {
+    await writeFile(join(repo.path, 'main.ts'), 'import { limit } from "./limit";\nexport function attempts() { return limit; }\n');
+    await writeFile(join(repo.path, 'limit.ts'), 'export const limit = 3;\n');
+    repo.git('add', '.'); repo.git('commit', '-qm', 'dependency baseline');
+    await writeFile(join(repo.path, 'limit.ts'), 'export const limit = 5;\n');
+    let calls = 0;
+    const service = new ReviewService({ apiKey: 'test', transport: async request => {
+      calls++;
+      const previous = request.files[0].version === 'previous';
+      assert.deepEqual(request.files.map(file => file.path), ['main.ts', 'limit.ts']);
+      return { content: { functions: request.functions.map(fn => ({ id: fn.id, name: fn.name,
+        statements: [{ text: fn.name === 'attempts' ? previous ? 'Returns the retry limit of three.' : 'Returns the retry limit of five.' : 'Imports the retry limit.', startLine: fn.startLine, endLine: fn.endLine, uncertainty: null }],
+      })) } };
+    } });
+    const preview = await service.prepareComparison(repo.path, 'main.ts');
+    assert.equal(calls, 0);
+    const comparison = await service.generateComparison(preview.id);
+    assert.equal(calls, 2);
+    const attempts = comparison.functions.find(fn => fn.name === 'attempts')!;
+    assert.equal(attempts.statements[0].change, 'modified');
+    assert.equal(attempts.statements[0].current!.text, 'Returns the retry limit of five.');
+    assert.equal(comparison.previous!.files[0].hash, comparison.current!.files[0].hash);
+    assert.ok((await service.getCachedComparison(repo.path, 'main.ts')).comparison);
+    assert.equal(calls, 2);
+    await writeFile(join(repo.path, 'limit.ts'), 'export const limit = 7;\n');
+    assert.equal((await service.getComparisonFreshness(preview.id)).outdated, true);
+    assert.equal((await service.getCachedComparison(repo.path, 'main.ts')).comparison, null);
+    assert.equal(calls, 2);
+    assert.equal(attempts.statements[0].current!.text, 'Returns the retry limit of five.');
+  } finally { await repo.cleanup(); }
+});
