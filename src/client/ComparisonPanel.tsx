@@ -4,9 +4,11 @@ import type { SourceReference, ModelSettings } from '../shared/explanation.js';
 import type { ComparisonPreview, FileComparison } from '../shared/comparison.js';
 import { api } from './api.js';
 import { UsageReport } from './UsageReport.js';
+import { ContextSettings } from './ContextSettings.js';
 
 export function ComparisonPanel({ file, onSelect }: { file: FileReview; onSelect: (reference: SourceReference) => void }) {
   const [model, setModel] = useState('openai/gpt-4.1-mini');
+  const [contextLimitBytes, setContextLimitBytes] = useState(65536);
   const [preview, setPreview] = useState<ComparisonPreview | null>(null);
   const [comparison, setComparison] = useState<FileComparison | null>(null);
   const [error, setError] = useState('');
@@ -19,7 +21,7 @@ export function ComparisonPanel({ file, onSelect }: { file: FileReview; onSelect
     const id = ++request.current;
     setBusy(true); setError('');
     try {
-      const result = await api<ComparisonPreview>('comparison/preview', { repositoryPath: file.repositoryPath, filePath: file.path, model });
+      const result = await api<ComparisonPreview>('comparison/preview', { repositoryPath: file.repositoryPath, filePath: file.path, model, contextLimitBytes });
       if (id === request.current) setPreview(result);
     } catch (error) { if (id === request.current) setError((error as Error).message); }
     finally { if (id === request.current) setBusy(false); }
@@ -41,10 +43,12 @@ export function ComparisonPanel({ file, onSelect }: { file: FileReview; onSelect
   return <section className="explanations" aria-label="English explanations"><h2>English review</h2>
     {!file.supported || file.notice ? <p>This file is unsupported for explanations. Source remains available.</p> : <>
       <label className="model-setting">OpenRouter model<input aria-label="OpenRouter model" value={model} onChange={event => { setModel(event.target.value); setPreview(null); }} disabled={busy} /></label>
+      <ContextSettings value={contextLimitBytes} onChange={value => { setContextLimitBytes(value); setPreview(null); }} disabled={busy} />
       <button onClick={prepare} disabled={busy}>Preview transmission</button>
       {preview && <div className="transmission" aria-label="Transmission preview"><h3>Source sent to OpenRouter</h3><p>Model: {preview.model}. Both HEAD and current versions are previewed. Opening this preview sends nothing.</p>
+        {[preview.previous, preview.current].map((side, index) => side && <div key={index}>{side.contextWarnings?.map(warning => <p className="uncertainty" key={warning}>Context warning: {warning}</p>)}{side.unavailableReason && <p role="alert" className="error">{side.unavailableReason}</p>}</div>)}
         {preview.files.map((source, index) => <details key={`${source.path}:${source.version}:${index}`}><summary>{source.path} · {source.version}</summary><pre>{source.content}</pre></details>)}
-        <button onClick={generate} disabled={busy}>{error ? 'Retry generation' : 'Generate explanations'}</button>
+        <button onClick={generate} disabled={busy || Boolean(preview.previous?.unavailableReason || preview.current?.unavailableReason)}>{error ? 'Retry generation' : 'Generate explanations'}</button>
       </div>}
       {busy && <><p role="status">Preparing or generating English comparison…</p><button onClick={cancel}>Cancel generation</button></>}
       {error && <p role="alert" className="error">{error}</p>}
