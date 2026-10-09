@@ -17,6 +17,18 @@
 
 main > [aria-label="English review mode"] { grid-column: 1 / -1; padding: 12px 20px; border-bottom: 1px solid #2c3b46; }
 
+.file-tree { list-style: none; margin: 0; padding: 0; }
+.file-tree .file-tree { margin-left: 10px; padding-left: 5px; border-left: 1px solid #293b45; }
+nav .tree-row { flex-direction: row; align-items: center; gap: 5px; padding: 8px 5px; }
+.tree-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tree-chevron, .tree-file-icon { flex: 0 0 12px; color: #809b96; text-align: center; }
+.tree-directory .tree-name { color: #b9c9d0; }
+.tree-count { margin-left: auto; flex-shrink: 0; padding: 1px 5px; border-radius: 8px; background: #344439; color: #c8ddba; font-size: 10px; }
+nav .tree-status { margin-left: auto; flex-shrink: 0; font-size: 9px; }
+nav .tree-status.added { color: #ade7bc; }
+nav .tree-status.modified { color: #e3c58a; }
+nav .tree-status.deleted { color: #efb1b7; }
+
 @media (min-width: 1001px) {
   main:has(> [aria-label="English review mode"]) { grid-template-rows: auto minmax(0, 1fr); }
   main.outdated-review:has(> [aria-label="English review mode"]) { grid-template-rows: auto auto minmax(0, 1fr); }

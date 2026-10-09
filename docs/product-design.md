@@ -31,6 +31,10 @@ A personal experiment for a developer who wants to understand source code and re
 - Analysis starts with the full changed function and relevant definitions, expanding context within a configurable limit. Missing context that limits reliability is flagged.
 - Before generation, the app shows which files will be sent. The user can cancel pending work and inspect token usage and cost when reported by OpenRouter.
 
+## Repository navigation
+
+The sidebar presents the Git-visible files as a tree matching their relative directory paths. Ignore Git-ignored files and empty directories; include untracked additions and deleted files at their previous paths. Folders are collapsible, with the first directory level expanded initially and deeper folders collapsed. Within each folder, sort directories first, then files, alphabetically. Clicking a folder toggles expansion; clicking a file opens its review. Changed files retain status indicators, and each folder shows its descendant changed-file count even when collapsed.
+
 ## Technical direction
 
 - TypeScript throughout, React and Vite for the browser interface, and a local Node.js server for filesystem access, Git, caching, and OpenRouter requests.
