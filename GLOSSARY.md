@@ -11,3 +11,7 @@ _Avoid_: Sentence, code statement
 **Function explanation**:
 The collection of statements describing a function's behavior, presented under its original function name.
 _Avoid_: Function translation
+
+**Recent project**:
+A local Git repository that has been opened successfully and is remembered for convenient reopening.
+_Avoid_: Recent file, saved review

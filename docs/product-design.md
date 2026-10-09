@@ -33,6 +33,8 @@ A personal experiment for a developer who wants to understand source code and re
 
 ## Repository navigation
 
+Recent-project history is described in [Recent projects](recent-projects.md).
+
 The sidebar presents the Git-visible files as a tree matching their relative directory paths. Ignore Git-ignored files and empty directories; include untracked additions and deleted files at their previous paths. Folders are collapsible, with the first directory level expanded initially and deeper folders collapsed. Within each folder, sort directories first, then files, alphabetically. Clicking a folder toggles expansion; clicking a file opens its review. Changed files retain status indicators, and each folder shows its descendant changed-file count even when collapsed.
 
 ## Technical direction
