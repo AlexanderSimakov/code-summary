@@ -76,12 +76,12 @@ test('missing credentials preserve browsing and settings do not expose a credent
   } finally { await repo.cleanup(); }
 });
 
-test('TS/JS adapters preserve exact variable and method names and omit anonymous callbacks', async () => {
+test('TS/JS adapters preserve exact variable and method names and group anonymous callbacks under module behavior', async () => {
   const repo = await fixture();
   try {
     await writeFile(join(repo.path, 'sample.jsx'), 'const arrowName = () => 1;\nclass Worker {\n  async runJob() { return 2; }\n  ["exact-method"]() { return 3; }\n}\n[1].map(value => value + 1);\n');
     const preview = await new ReviewService().prepareAnalysis(repo.path, 'sample.jsx');
-    assert.deepEqual(preview.functions.map(fn => fn.name), ['arrowName', 'runJob', '["exact-method"]']);
-    assert.equal(preview.functions[1].startLine, 3);
+    assert.deepEqual(preview.functions.map(fn => fn.name), ['arrowName', 'Worker', 'runJob', '["exact-method"]', '']);
+    assert.equal(preview.functions[2].startLine, 3);
   } finally { await repo.cleanup(); }
 });

@@ -154,7 +154,7 @@ export class ReviewService {
     if (cached) { signal.throwIfAborted(); return cached; }
     const apiKey = this.options.apiKey ?? process.env.OPENROUTER_API_KEY;
     if (!apiKey) throw new Error('Set OPENROUTER_API_KEY in the local server .env file, then retry.');
-    if (preview.functions.length === 0) throw new Error('No named functions found in this file. Source remains available.');
+    if (preview.functions.length === 0) throw new Error('No explainable source units found in this file. Source remains available.');
     signal.throwIfAborted();
     const result = await (this.options.transport ?? openRouterTransport)(structuredClone(preview), { apiKey, signal });
     signal.throwIfAborted();

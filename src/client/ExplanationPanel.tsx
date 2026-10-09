@@ -61,7 +61,7 @@ export function ExplanationPanel({ file, onSelect, outdated = false, onOutdated 
         {preview.contextWarnings?.map(warning => <p className="uncertainty" key={warning}>Context warning: {warning}</p>)}
         {preview.unavailableReason && <p role="alert" className="error">{preview.unavailableReason}</p>}
         {preview.files.map(source => <details key={`${source.path}:${source.version}`}><summary>{source.path} · {source.version}</summary><pre>{source.content}</pre></details>)}
-        <p>Includes {preview.functions.length} complete named functions. Source is sent only when you generate.</p>
+        <p>Includes {preview.functions.length} source units (functions, declarations and module behavior). Source is sent only when you generate.</p>
         <button onClick={generate} disabled={busy || generation.pending || Boolean(preview.unavailableReason)}>{error ? 'Retry generation' : 'Generate explanations'}</button>
       </div>}
       {busy && <p role="status">Preparing transmission preview…</p>}
@@ -69,7 +69,7 @@ export function ExplanationPanel({ file, onSelect, outdated = false, onOutdated 
       {explanation?.cached && <p>Cached explanation · no new AI request.</p>}
       {explanation && <UsageReport usage={explanation.usage} />}
       {error && <p role="alert" className="error">{error}</p>}
-      {explanation?.functions.map(fn => <article className="function-explanation" key={fn.id}><h3>{fn.name}</h3>{fn.statements.map((statement, index) => <div key={index}><button className="statement" onClick={() => onSelect(statement.reference)}>{statement.text}</button>{statement.uncertainty && <p className="uncertainty">Uncertain: {statement.uncertainty}</p>}</div>)}</article>)}
+      {explanation?.functions.map(fn => <article className="function-explanation" key={fn.id}><h3>{fn.name || fn.displayName || 'Anonymous source unit'}</h3>{fn.statements.map((statement, index) => <div key={index}><button className="statement" onClick={() => onSelect(statement.reference)}>{statement.text}</button>{statement.uncertainty && <p className="uncertainty">Uncertain: {statement.uncertainty}</p>}</div>)}</article>)}
     </>}
   </section>;
 }
