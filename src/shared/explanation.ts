@@ -10,5 +10,5 @@ export interface SourceReference { path: string; version: SourceSnapshot['versio
 export interface ExplanationStatement { text: string; uncertainty: string | null; reference: SourceReference }
 export interface FunctionExplanation extends AnalysisFunction { statements: ExplanationStatement[] }
 export interface GenerationUsage { promptTokens?: number; completionTokens?: number; totalTokens?: number; cost?: number }
-export interface FileExplanation { usage?: GenerationUsage; previewId: string; model: string; functions: FunctionExplanation[]; files: AnalysisFile[]; contextWarnings?: string[] }
+export interface FileExplanation { cached?: boolean; usage?: GenerationUsage; previewId: string; model: string; functions: FunctionExplanation[]; files: AnalysisFile[]; contextWarnings?: string[] }
 export interface ModelSettings { model: string; configured: boolean }
