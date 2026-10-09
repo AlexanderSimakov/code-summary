@@ -14,3 +14,10 @@
 
 .review-status { grid-column: 1 / -1; padding: 12px 16px; background: #3b3525; color: #e3c58a; font-size: 13px; }
 .outdated-review { grid-template-rows: auto minmax(0, 1fr); }
+
+main > [aria-label="English review mode"] { grid-column: 1 / -1; padding: 12px 20px; border-bottom: 1px solid #2c3b46; }
+
+@media (min-width: 1001px) {
+  main:has(> [aria-label="English review mode"]) { grid-template-rows: auto minmax(0, 1fr); }
+  main.outdated-review:has(> [aria-label="English review mode"]) { grid-template-rows: auto auto minmax(0, 1fr); }
+}

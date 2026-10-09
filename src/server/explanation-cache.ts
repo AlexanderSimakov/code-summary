@@ -1,3 +1,4 @@
+import { validExplanationFunctions } from './explanation-validation.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -21,16 +22,7 @@ export class ExplanationCache {
       if (saved.identity !== analysisIdentity(preview) || !Array.isArray(saved.result?.functions) || !Array.isArray(saved.result?.files)) return null;
       const result = saved.result as FileExplanation;
       if (result.model !== preview.model || JSON.stringify(result.files) !== JSON.stringify(preview.files) || result.functions.length !== preview.functions.length) return null;
-      const seen = new Set<string>();
-      for (const fn of result.functions) {
-        const unit = preview.functions.find(unit => unit.id === fn?.id);
-        if (!unit || fn.name !== unit.name || seen.has(fn.id) || !Array.isArray(fn.statements) || !fn.statements.length) return null;
-        seen.add(fn.id);
-        for (const statement of fn.statements) {
-          const reference = statement?.reference;
-          if (!statement || typeof statement.text !== 'string' || !statement.text.trim() || !(statement.uncertainty === null || typeof statement.uncertainty === 'string') || !reference || reference.path !== preview.filePath || reference.sourceHash !== preview.files[0]?.hash || reference.version !== preview.files[0]?.version || !Number.isInteger(reference.startLine) || !Number.isInteger(reference.endLine) || reference.startLine < unit.startLine || reference.endLine > unit.endLine || reference.startLine > reference.endLine) return null;
-        }
-      }
+      if (!validExplanationFunctions(preview, result.functions)) return null;
       return { ...result, previewId: preview.id, cached: true };
     } catch { return null; }
   }

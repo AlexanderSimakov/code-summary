@@ -5,6 +5,7 @@ import type { ComparisonPreview, FileComparison } from '../shared/comparison.js'
 import { useFreshness } from './useFreshness.js';
 import { api } from './api.js';
 import { UsageReport } from './UsageReport.js';
+import { useGeneration } from './useGeneration.js';
 import { ContextSettings } from './ContextSettings.js';
 
 export function ComparisonPanel({ file, onSelect, outdated = false, onOutdated = () => {} }: { file: FileReview; outdated?: boolean; onOutdated?: () => void; onSelect: (reference: SourceReference) => void }) {
@@ -15,9 +16,9 @@ export function ComparisonPanel({ file, onSelect, outdated = false, onOutdated =
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const request = useRef(0);
-  const controller = useRef<AbortController | null>(null);
+  const generation = useGeneration();
   useEffect(() => { api<ModelSettings>('settings', {}).then(settings => setModel(settings.model)).catch(error => setError(error.message)); }, []);
-  useEffect(() => { ++request.current; controller.current?.abort(); setPreview(null); setComparison(null); setError(''); setBusy(false); return () => { ++request.current; controller.current?.abort(); }; }, [file]);
+  useEffect(() => { ++request.current; generation.cancel(); setPreview(null); setComparison(null); setError(''); setBusy(false); return () => { ++request.current; generation.cancel(); }; }, [file]);
   useFreshness('comparison', comparison?.previewId, onOutdated);
   useEffect(() => {
     if (!file.supported) return;
@@ -44,28 +45,24 @@ export function ComparisonPanel({ file, onSelect, outdated = false, onOutdated =
   async function generate() {
     if (!preview) return;
     const id = ++request.current;
-    const abort = new AbortController(); controller.current = abort;
-    setBusy(true); setError('');
+    setError('');
     try {
-      const response = await fetch('/api/comparison/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ previewId: preview.id }), signal: abort.signal });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error ?? 'Generation failed.');
-      if (id === request.current) setComparison(result);
-    } catch (error) { if (id === request.current && !abort.signal.aborted) setError((error as Error).message); }
-    finally { if (id === request.current) setBusy(false); }
+      const result = await generation.run(signal => api<FileComparison>('comparison/generate', { previewId: preview.id }, signal));
+      if (result && id === request.current) setComparison(result);
+    } catch (error) { if (id === request.current) setError((error as Error).message); }
   }
-  function cancel() { ++request.current; controller.current?.abort(); setBusy(false); setError('Generation cancelled. Provider usage may still be charged.'); }
+  function cancel() { ++request.current; generation.cancel(); setBusy(false); setError('Generation cancelled. Provider usage may still be charged.'); }
   return <section className="explanations" aria-label="English explanations"><h2>English review</h2>
     {!file.supported || file.notice ? <p>This file is unsupported for explanations. Source remains available.</p> : <>
-      <label className="model-setting">OpenRouter model<input aria-label="OpenRouter model" value={model} onChange={event => { setModel(event.target.value); setPreview(null); }} disabled={busy} /></label>
-      <ContextSettings value={contextLimitBytes} onChange={value => { setContextLimitBytes(value); setPreview(null); }} disabled={busy} />
-      <button onClick={prepare} disabled={outdated || busy}>Preview transmission</button>
+      <label className="model-setting">OpenRouter model<input aria-label="OpenRouter model" value={model} onChange={event => { setModel(event.target.value); setPreview(null); setComparison(null); setError(''); ++request.current; generation.cancel(); }} disabled={busy || generation.pending} /></label>
+      <ContextSettings value={contextLimitBytes} onChange={value => { setContextLimitBytes(value); setPreview(null); setComparison(null); setError(''); ++request.current; generation.cancel(); }} disabled={busy || generation.pending} />
+      <button onClick={prepare} disabled={outdated || busy || generation.pending}>Preview transmission</button>
       {preview && <div className="transmission" aria-label="Transmission preview"><h3>Source sent to OpenRouter</h3><p>Model: {preview.model}. Both HEAD and current versions are previewed. Opening this preview sends nothing.</p>
         {[preview.previous, preview.current].map((side, index) => side && <div key={index}>{!comparison && side.contextWarnings?.map(warning => <p className="uncertainty" key={warning}>Context warning: {warning}</p>)}{side.unavailableReason && <p role="alert" className="error">{side.unavailableReason}</p>}</div>)}
         {preview.files.map((source, index) => <details key={`${source.path}:${source.version}:${index}`}><summary>{source.path} · {source.version}</summary><pre>{source.content}</pre></details>)}
-        <button onClick={generate} disabled={busy || Boolean(preview.previous?.unavailableReason || preview.current?.unavailableReason)}>{error ? 'Retry generation' : 'Generate explanations'}</button>
+        <button onClick={generate} disabled={busy || generation.pending || Boolean(preview.previous?.unavailableReason || preview.current?.unavailableReason)}>{error ? 'Retry generation' : 'Generate explanations'}</button>
       </div>}
-      {busy && <><p role="status">Preparing or generating English comparison…</p><button onClick={cancel}>Cancel generation</button></>}
+      {(busy || generation.pending) && <><p role="status">Preparing or generating English comparison…</p><button onClick={cancel}>Cancel generation</button></>}
       {error && <p role="alert" className="error">{error}</p>}
       {comparison && <>
         {(comparison.previous?.cached || comparison.current?.cached) && <p>Cached explanations reused without a new AI request.</p>}

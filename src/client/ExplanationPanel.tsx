@@ -53,8 +53,8 @@ export function ExplanationPanel({ file, onSelect, outdated = false, onOutdated 
   }
   return <section className="explanations" aria-label="English explanations"><h2>English review</h2>
     {!file ? <p className="empty">Choose a file to begin.</p> : !file.supported ? <p>This file is unsupported for explanations. Source remains available.</p> : <>
-      <label className="model-setting">OpenRouter model<input aria-label="OpenRouter model" value={model} onChange={event => { setModel(event.target.value); setPreview(null); }} disabled={busy || generation.pending} /></label>
-      <ContextSettings value={contextLimitBytes} onChange={value => { setContextLimitBytes(value); setPreview(null); }} disabled={busy || generation.pending} />
+      <label className="model-setting">OpenRouter model<input aria-label="OpenRouter model" value={model} onChange={event => { setModel(event.target.value); setPreview(null); setExplanation(null); setError(''); ++request.current; generation.cancel(); }} disabled={busy || generation.pending} /></label>
+      <ContextSettings value={contextLimitBytes} onChange={value => { setContextLimitBytes(value); setPreview(null); setExplanation(null); setError(''); ++request.current; generation.cancel(); }} disabled={busy || generation.pending} />
       {!configured && <p className="muted">Configure OPENROUTER_API_KEY in the local server .env file before generation. Source browsing needs no key.</p>}
       <button onClick={prepare} disabled={outdated || busy || generation.pending}>Preview transmission</button>
       {preview && <div className="transmission" aria-label="Transmission preview"><h3>Source sent to OpenRouter</h3><p>Model: {preview.model}. Opening this preview sends nothing.</p>

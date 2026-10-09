@@ -45,3 +45,33 @@ test('cancel, ignore a late response, retry a failure explicitly, and inspect ho
     expect(calls).toBe(3);
   } finally { await repo.cleanup(); }
 });
+
+for (const mode of ['analysis', 'comparison']) {
+  test(`${mode} hides incompatible results after model and context changes with a cache miss`, async ({ page }) => {
+    const repo = await fixture();
+    try {
+      const content = 'export function sample() { return 42; }\n';
+      await writeFile(join(repo.path, 'sample.ts'), content);
+      if (mode === 'analysis') { repo.git('add', '.'); repo.git('commit', '-qm', 'baseline'); }
+      await page.route('**/api/settings', route => route.fulfill({ json: { model: 'test/model', configured: true } }));
+      const result = mode === 'analysis'
+        ? { previewId: 'preview', usage: {}, functions: [{ id: 'fn', name: 'sample', statements: [{ text: 'Old configuration result.', uncertainty: null, reference: {} }] }] }
+        : { previewId: 'preview', functions: [{ name: 'sample', statements: [{ change: 'added', current: { text: 'Old configuration result.', uncertainty: null, reference: {} } }] }], uncertainty: 'Heuristic.' };
+      await page.route(`**/api/${mode}/freshness`, route => route.fulfill({ json: { outdated: false } }));
+      await page.route(`**/api/${mode}/cache`, route => route.fulfill({ json: { preview: { id: 'preview', files: [] }, [mode === 'analysis' ? 'explanation' : 'comparison']: null } }));
+      await page.route(`**/api/${mode}/preview`, route => route.fulfill({ json: { id: 'preview', model: 'test/model', files: [], functions: [] } }));
+      await page.route(`**/api/${mode}/generate`, route => route.fulfill({ json: result }));
+      await page.goto('/'); await page.getByLabel('Repository path').fill(repo.path);
+      await page.getByRole('button', { name: 'Open repository' }).click();
+      await page.getByRole('button', { name: `sample.ts ${mode === 'analysis' ? 'unchanged' : 'added'}` }).click();
+      for (const setting of ['model', 'context']) {
+        await page.getByRole('button', { name: 'Preview transmission' }).click();
+        await page.getByRole('button', { name: 'Generate explanations' }).click();
+        await expect(page.getByRole('button', { name: /Old configuration result/ })).toBeVisible();
+        if (setting === 'model') await page.getByLabel('OpenRouter model').fill('another/model');
+        else await page.getByLabel('Context limit (bytes)').fill('32000');
+        await expect(page.getByRole('button', { name: /Old configuration result/ })).toHaveCount(0);
+      }
+    } finally { await repo.cleanup(); }
+  });
+}

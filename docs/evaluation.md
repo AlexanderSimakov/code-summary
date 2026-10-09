@@ -62,3 +62,17 @@ A 1600 × 1100 screenshot is available as `/private/tmp/code-summary-implementat
 ## Scope and follow-up
 
 The milestone remains read-only and limited to TS/JS explanations. Python and other unsupported files remain browseable where source text is available. No Git write, target-code execution, in-app source editor, English editor, or bidirectional transformation was added. Follow up with broader manual quality/matching evaluation and clearer uncertainty presentation before the separately agreed milestone for English-to-source and source-to-English editing.
+
+## Formal review follow-up
+
+The five formal review findings were corrected after the initial evaluation above:
+
+- Provider responses and cached results now share one source-unit/statement validator. A tampered cache entry citing only a closing brace is rejected and requires fresh generation.
+- Comparison generation uses the shared browser request lifecycle and API helper. Cancellation discards late responses and supports explicit retry.
+- Supported files expose Baseline and Compare with HEAD controls, including unchanged callers whose dependencies changed. A browser regression previews both dependency versions and navigates changed English statements.
+- Rephrased statements inside an edited function preserve baseline wording when the exact referenced fragment and enclosing prefix match, surrounding source and transmitted dependency hashes match, and later declarations cannot affect earlier calls through hoisting or capture. Changed enclosing conditions, cross-file dependencies, and referenced local definitions do not force old wording. The same-file callee case has an additional service regression.
+- Changing model or context budget clears incompatible visible explanations and previews in both modes; browser regressions cover cache misses for both settings. The mode header retains its own grid row so source navigation cannot cover its controls.
+
+Matching still uses conservative heuristics, not semantic proof. Prefix matching deliberately declines some safe edits, including suffix declarations, changes before the statement, and changes outside the function. Identifier-based local-definition checks do not resolve every transitive/dynamic dependency or runtime effect. Identical model wording and order-based pairing retain the limitations described above; inspect source when uncertain.
+
+Final offline verification after these fixes: 34 public review-service tests passed, 13 browser tests passed, type checking and production build passed, and `git diff --check` passed. The follow-up made no provider requests and did not change the live-evaluation costs or accuracy findings above.
