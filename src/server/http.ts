@@ -33,7 +33,7 @@ export function createReviewServer(service = new ReviewService()) {
       if (url.pathname.startsWith('/api/')) {
         if (request.method !== 'POST') return json(response, 405, { error: 'POST required.' });
         const input = await body(request);
-        if (url.pathname === '/api/comparison/preview') return json(response, 200, await service.prepareComparison(string(input.repositoryPath), string(input.filePath), input.model === undefined ? undefined : string(input.model)));
+        if (url.pathname === '/api/comparison/preview') return json(response, 200, await service.prepareComparison(string(input.repositoryPath), string(input.filePath), input.model === undefined ? undefined : string(input.model), { contextLimitBytes: input.contextLimitBytes === undefined ? undefined : Number(input.contextLimitBytes) }));
         if (url.pathname === '/api/comparison/generate') {
           const controller = new AbortController();
           const disconnected = () => { if (!response.writableEnded) controller.abort(); };
@@ -42,7 +42,7 @@ export function createReviewServer(service = new ReviewService()) {
           finally { response.off('close', disconnected); }
         }
         if (url.pathname === '/api/settings') return json(response, 200, service.getSettings());
-        if (url.pathname === '/api/analysis/preview') return json(response, 200, await service.prepareAnalysis(string(input.repositoryPath), string(input.filePath), input.model === undefined ? undefined : string(input.model)));
+        if (url.pathname === '/api/analysis/preview') return json(response, 200, await service.prepareAnalysis(string(input.repositoryPath), string(input.filePath), input.model === undefined ? undefined : string(input.model), { version: input.version === 'previous' || input.version === 'current' ? input.version : undefined, contextLimitBytes: input.contextLimitBytes === undefined ? undefined : Number(input.contextLimitBytes) }));
         if (url.pathname === '/api/analysis/cancel') return json(response, 200, { cancelled: service.cancelGeneration(string(input.previewId)) });
         if (url.pathname === '/api/analysis/generate') {
           const controller = new AbortController();
