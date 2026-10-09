@@ -5,6 +5,8 @@ import { lstat, readFile, readlink, realpath } from 'node:fs/promises';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import type { FileReview, FileStatus, RepositoryReview, ReviewFile, SourceSnapshot } from '../shared/review.js';
 
+import { compareExplanations } from './comparison.js';
+import type { ComparisonPreview, FileComparison } from '../shared/comparison.js';
 import { extractFunctions } from './language-adapter.js';
 import { openRouterTransport, type AITransport } from './openrouter.js';
 import type { AnalysisPreview, FileExplanation, ModelSettings, GenerationUsage } from '../shared/explanation.js';
@@ -28,17 +30,18 @@ function snapshot(version: SourceSnapshot['version'], content: string): SourceSn
 export interface ReviewServiceOptions { apiKey?: string; model?: string; transport?: AITransport }
 export class ReviewService {
   private pending = new Map<string, { previewId: string; controller: AbortController }>();
+  private comparisons = new Map<string, ComparisonPreview>();
   private previews = new Map<string, AnalysisPreview>();
   private options: ReviewServiceOptions;
   constructor(options: ReviewServiceOptions = {}) { this.options = options; }
   getSettings(): ModelSettings {
     return { model: this.options.model ?? process.env.OPENROUTER_MODEL ?? 'openai/gpt-4.1-mini', configured: Boolean(this.options.apiKey ?? process.env.OPENROUTER_API_KEY) };
   }
-  async prepareAnalysis(repositoryPath: string, filePath: string, model = this.getSettings().model): Promise<AnalysisPreview> {
+  async prepareAnalysis(repositoryPath: string, filePath: string, model = this.getSettings().model, options: { version?: SourceSnapshot['version']; contextLimitBytes?: number } = {}): Promise<AnalysisPreview> {
     if (!model.trim() || model.length > 200) throw new Error('Choose a valid OpenRouter model.');
     const file = await this.getFile(repositoryPath, filePath);
     if (!file.supported || file.notice) throw new Error('This file is unsupported for explanations. Source remains available.');
-    const source = file.current ?? file.previous;
+    const source = options.version === 'previous' ? file.previous : options.version === 'current' ? file.current : file.current ?? file.previous;
     if (!source) throw new Error('No source is available for analysis.');
     const preview: AnalysisPreview = { id: randomUUID(), repositoryPath: file.repositoryPath, filePath, model,
       files: [{ ...source, path: filePath }], functions: extractFunctions(filePath, source.content) };
@@ -113,6 +116,30 @@ export class ReviewService {
       if (typeof value === 'number' && Number.isFinite(value) && value >= 0 && (field === 'cost' || Number.isInteger(value))) usage[field] = value;
     }
     return { usage, previewId, model: preview.model, functions, files: structuredClone(preview.files) };
+  }
+
+  async prepareComparison(repositoryPath: string, filePath: string, model = this.getSettings().model, options: { contextLimitBytes?: number } = {}): Promise<ComparisonPreview> {
+    const file = await this.getFile(repositoryPath, filePath);
+    const previous = file.previous ? await this.prepareAnalysis(repositoryPath, filePath, model, { ...options, version: 'previous' }) : null;
+    const current = file.current ? await this.prepareAnalysis(repositoryPath, filePath, model, { ...options, version: 'current' }) : null;
+    const preview: ComparisonPreview = { id: randomUUID(), repositoryPath: file.repositoryPath, filePath, model, previous, current,
+      files: [...(previous?.files ?? []), ...(current?.files ?? [])] };
+    this.comparisons.set(preview.id, preview);
+    if (this.comparisons.size > 100) this.comparisons.delete(this.comparisons.keys().next().value!);
+    return structuredClone(preview);
+  }
+  async generateComparison(previewId: string, signal?: AbortSignal): Promise<FileComparison> {
+    const preview = this.comparisons.get(previewId);
+    if (!preview) throw new Error('Preview expired. Prepare another preview before generation.');
+    // Validate both snapshots before the first transmission, including absent versions.
+    const file = await this.getFile(preview.repositoryPath, preview.filePath);
+    if (file.previous?.hash !== preview.previous?.files[0]?.hash || file.current?.hash !== preview.current?.files[0]?.hash) throw new Error('Source changed since preview. Prepare a new preview.');
+    const explain = async (side: AnalysisPreview | null) => side ? side.functions.length ? this.generateExplanation(side.id, signal) : { previewId: side.id, model: side.model, functions: [], files: side.files } : null;
+    const previous = await explain(preview.previous);
+    signal?.throwIfAborted();
+    const current = await explain(preview.current);
+    signal?.throwIfAborted();
+    return compareExplanations(previewId, previous, current);
   }
 
   async openRepository(repositoryPath: string): Promise<RepositoryReview> {
