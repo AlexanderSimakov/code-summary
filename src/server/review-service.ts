@@ -8,7 +8,7 @@ import type { FileReview, FileStatus, RepositoryReview, ReviewFile, SourceSnapsh
 import { collectContext, defaultContextLimitBytes } from './context.js';
 import { extractFunctions } from './language-adapter.js';
 import { openRouterTransport, type AITransport } from './openrouter.js';
-import type { AnalysisPreview, FileExplanation, ModelSettings } from '../shared/explanation.js';
+import type { AnalysisPreview, FileExplanation, ModelSettings, GenerationUsage } from '../shared/explanation.js';
 
 const execute = promisify(execFile);
 const maxSourceBytes = 2 * 1024 * 1024;
@@ -28,6 +28,7 @@ function snapshot(version: SourceSnapshot['version'], content: string): SourceSn
 /** Public application seam. Reads Git objects and local files; never executes target code. */
 export interface ReviewServiceOptions { apiKey?: string; model?: string; transport?: AITransport }
 export class ReviewService {
+  private pending = new Map<string, { previewId: string; controller: AbortController }>();
   private previews = new Map<string, AnalysisPreview>();
   private options: ReviewServiceOptions;
   constructor(options: ReviewServiceOptions = {}) { this.options = options; }
@@ -73,6 +74,39 @@ export class ReviewService {
   async generateExplanation(previewId: string, signal?: AbortSignal): Promise<FileExplanation> {
     const preview = this.previews.get(previewId);
     if (!preview) throw new Error('Preview expired. Prepare another preview before generation.');
+    const key = `${preview.repositoryPath}\0${preview.filePath}`;
+    this.pending.get(key)?.controller.abort();
+    const controller = new AbortController();
+    const entry = { previewId, controller };
+    this.pending.set(key, entry);
+    const cancel = () => controller.abort();
+    signal?.addEventListener('abort', cancel, { once: true });
+    if (signal?.aborted) controller.abort();
+    let onAbort!: () => void;
+    const aborted = new Promise<never>((_, reject) => {
+      onAbort = () => reject(new Error('Generation cancelled. Provider charges may still apply.'));
+      controller.signal.addEventListener('abort', onAbort, { once: true });
+      if (controller.signal.aborted) onAbort();
+    });
+    try {
+      const result = await Promise.race([this.performGeneration(previewId, controller.signal), aborted]);
+      if (controller.signal.aborted || this.pending.get(key) !== entry) throw new Error('Generation cancelled.');
+      return result;
+    } finally {
+      signal?.removeEventListener('abort', cancel);
+      controller.signal.removeEventListener('abort', onAbort);
+      if (this.pending.get(key) === entry) this.pending.delete(key);
+    }
+  }
+  cancelGeneration(previewId: string): boolean {
+    for (const entry of this.pending.values()) {
+      if (entry.previewId === previewId) { entry.controller.abort(); return true; }
+    }
+    return false;
+  }
+  private async performGeneration(previewId: string, signal: AbortSignal): Promise<FileExplanation> {
+    const preview = this.previews.get(previewId);
+    if (!preview) throw new Error('Preview expired. Prepare another preview before generation.');
     if (preview.unavailableReason) throw new Error(preview.unavailableReason);
     const source = preview.files[0];
     for (const transmitted of preview.files) {
@@ -82,7 +116,9 @@ export class ReviewService {
     const apiKey = this.options.apiKey ?? process.env.OPENROUTER_API_KEY;
     if (!apiKey) throw new Error('Set OPENROUTER_API_KEY in the local server .env file, then retry.');
     if (preview.functions.length === 0) throw new Error('No named functions found in this file. Source remains available.');
+    signal.throwIfAborted();
     const result = await (this.options.transport ?? openRouterTransport)(structuredClone(preview), { apiKey, signal });
+    signal.throwIfAborted();
     const invalid = () => new Error('Invalid explanation or source references. Retry generation; source remains available.');
     const value = result.content as any;
     if (!value || !Array.isArray(value.functions) || value.functions.length !== preview.functions.length || Object.keys(value).some(key => key !== 'functions')) throw invalid();
@@ -97,7 +133,13 @@ export class ReviewService {
       });
       return { ...fn, statements };
     });
-    return { previewId, model: preview.model, functions, files: structuredClone(preview.files), contextWarnings: preview.contextWarnings };
+    const reported = result.usage as Record<string, unknown> | undefined;
+    const usage: GenerationUsage = {};
+    for (const [field, upstream] of [['promptTokens', 'prompt_tokens'], ['completionTokens', 'completion_tokens'], ['totalTokens', 'total_tokens'], ['cost', 'cost']] as const) {
+      const value = reported?.[upstream];
+      if (typeof value === 'number' && Number.isFinite(value) && value >= 0 && (field === 'cost' || Number.isInteger(value))) usage[field] = value;
+    }
+    return { usage, previewId, model: preview.model, functions, files: structuredClone(preview.files), contextWarnings: preview.contextWarnings };
   }
 
   async openRepository(repositoryPath: string): Promise<RepositoryReview> {

@@ -14,7 +14,7 @@ export const openRouterTransport: AITransport = async (request, { apiKey, signal
   let response: Response;
   try {
     response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST', signal: signal ?? AbortSignal.timeout(120_000),
+      method: 'POST', signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(120_000)]) : AbortSignal.timeout(120_000),
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ model: request.model, stream: false, provider: { require_parameters: true },
         response_format: { type: 'json_schema', json_schema: { name: 'code_explanation', strict: true, schema: explanationSchema } },
@@ -22,7 +22,10 @@ export const openRouterTransport: AITransport = async (request, { apiKey, signal
           { role: 'user', content: JSON.stringify({ files: request.files, functions: request.functions, contextWarnings: request.contextWarnings ?? [] }) }],
       }),
     });
-  } catch { throw new Error('OpenRouter could not be reached. Check your connection and retry.'); }
+  } catch {
+    if (signal?.aborted) throw new Error('Generation cancelled. Provider charges may still apply.');
+    throw new Error('OpenRouter could not be reached or timed out. Check your connection and retry.');
+  }
   const errors: Record<number, string> = { 401: 'OpenRouter authentication failed. Check OPENROUTER_API_KEY.', 402: 'OpenRouter has insufficient credits.', 429: 'OpenRouter rate limit reached. Retry later.', 404: 'OpenRouter model or compatible endpoint unavailable. Choose another model.' };
   if (!response.ok) throw new Error(errors[response.status] ?? `OpenRouter request failed (${response.status}). Retry or choose another model.`);
   let result;

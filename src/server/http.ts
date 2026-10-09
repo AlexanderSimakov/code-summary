@@ -35,7 +35,14 @@ export function createReviewServer(service = new ReviewService()) {
         const input = await body(request);
         if (url.pathname === '/api/settings') return json(response, 200, service.getSettings());
         if (url.pathname === '/api/analysis/preview') return json(response, 200, await service.prepareAnalysis(string(input.repositoryPath), string(input.filePath), input.model === undefined ? undefined : string(input.model), { version: input.version === 'previous' || input.version === 'current' ? input.version : undefined, contextLimitBytes: input.contextLimitBytes === undefined ? undefined : Number(input.contextLimitBytes) }));
-        if (url.pathname === '/api/analysis/generate') return json(response, 200, await service.generateExplanation(string(input.previewId)));
+        if (url.pathname === '/api/analysis/cancel') return json(response, 200, { cancelled: service.cancelGeneration(string(input.previewId)) });
+        if (url.pathname === '/api/analysis/generate') {
+          const controller = new AbortController();
+          const disconnect = () => { if (!response.writableEnded) controller.abort(); };
+          response.once('close', disconnect);
+          try { return json(response, 200, await service.generateExplanation(string(input.previewId), controller.signal)); }
+          finally { response.removeListener('close', disconnect); }
+        }
         if (url.pathname === '/api/repository') return json(response, 200, await service.openRepository(string(input.path)));
         if (url.pathname === '/api/file') return json(response, 200, await service.getFile(string(input.repositoryPath), string(input.filePath)));
         return json(response, 404, { error: 'Unknown operation.' });
