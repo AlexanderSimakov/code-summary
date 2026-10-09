@@ -1,6 +1,6 @@
 # Recent projects
 
-The interview decisions below are confirmed. Implementation awaits confirmation of this complete design.
+The design and testing approach are confirmed and published in [spec #11](https://github.com/AlexanderSimakov/code-summary/issues/11), labeled `ready-for-agent`. Use that issue as the implementation specification; this document preserves the design context.
 
 - A recent project is a local Git repository that opened successfully. Failed attempts do not enter history.
 - Show a compact Recent projects list below the repository-path field, both before and after opening a project.
