@@ -26,6 +26,14 @@ The file list includes tracked files and non-ignored untracked files. Changes co
 
 Inspection does not execute the target repository, its scripts, tests, hooks, diff helpers, or text converters, and does not modify its contents or Git index. Renames are currently presented as a deletion and an addition. Repositories without commits are browsable as additions. Explanations currently cover named TS/JS functions and methods; English comparisons, module declarations, cross-file context, caching, cancellation and usage controls arrive in subsequent slices.
 
+## Recent projects
+
+The last 10 successfully opened Git repositories appear below the repository-path field, newest first. Click a project to load its current files and Git state with a fresh file selection. Startup shows the list without opening a repository automatically. Opening a project makes no AI request; compatible explanations are restored through the existing cache workflow when you select a file.
+
+History is shared by browsers using the same local server and survives restarts. It is stored in `~/.code-summary/recent-projects.json`, outside reviewed repositories and the temporary explanation cache. Set `CODE_SUMMARY_DATA_DIR` on the server to choose a different application-owned storage directory. Subfolders and symlinks resolve to the repository root; separate Git worktrees remain separate entries.
+
+**Remove** forgets one shortcut and **Clear history** forgets the list. Neither changes repository files or cached explanations. Unavailable repositories stay listed after a failed reopen, and your current review remains visible. History errors show a warning while repository browsing stays available. Lists refresh on load, tab focus, and explicit history actions without background polling.
+
 ## OpenRouter explanations
 
 Copy `.env.example` to `.env` in this application directory, set `OPENROUTER_API_KEY` locally, and restart the server. Never paste your key into the browser, target repository, or chat. `.env` is ignored by Git and loaded only on the server. `OPENROUTER_MODEL` defaults to `openai/gpt-4.1-mini`; the browser model field can select another model supporting structured output.
@@ -43,7 +51,7 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
-Integration tests exercise the public `ReviewService` with real temporary Git repositories. The browser smoke opens a repository, selects source, toggles its diff, and checks recovery from an invalid path. All tests use separate fixtures, without modifying the experimental repository.
+Integration tests exercise the public `ReviewService` with real temporary Git repositories. The browser smoke opens a repository, selects source, toggles its diff, and checks recovery from an invalid path. All tests use separate fixtures and isolated history/cache directories, without modifying the experimental repository or your saved recent projects. Recent-project browser checks use isolated local HTTP servers with real temporary Git repositories, including multiple browser contexts.
 
 ## Cached reviews and external edits
 
