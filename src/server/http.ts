@@ -55,7 +55,10 @@ export function createReviewServer(service = new ReviewService()) {
           try { return json(response, 200, await service.generateExplanation(string(input.previewId), controller.signal)); }
           finally { response.removeListener('close', disconnect); }
         }
-        if (url.pathname === '/api/repository') return json(response, 200, await service.openRepository(string(input.path)));
+        if (url.pathname === '/api/projects/recent') return json(response, 200, await service.getRecentProjects());
+        if (url.pathname === '/api/projects/recent/remove') return json(response, 200, await service.removeRecentProject(string(input.path)));
+        if (url.pathname === '/api/projects/recent/clear') return json(response, 200, await service.clearRecentProjects());
+        if (url.pathname === '/api/repository') return json(response, 200, await service.openProject(string(input.path)));
         if (url.pathname === '/api/file') return json(response, 200, await service.getFile(string(input.repositoryPath), string(input.filePath)));
         return json(response, 404, { error: 'Unknown operation.' });
       }

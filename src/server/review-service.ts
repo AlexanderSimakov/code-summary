@@ -1,3 +1,5 @@
+import { RecentProjects } from './recent-projects.js';
+import type { OpenedProject } from '../shared/review.js';
 import { validExplanationFunctions } from './explanation-validation.js';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -30,14 +32,22 @@ function snapshot(version: SourceSnapshot['version'], content: string): SourceSn
 }
 
 /** Public application seam. Reads Git objects and local files; never executes target code. */
-export interface ReviewServiceOptions { apiKey?: string; model?: string; transport?: AITransport; cacheDirectory?: string }
+export interface ReviewServiceOptions { apiKey?: string; model?: string; transport?: AITransport; cacheDirectory?: string; dataDirectory?: string }
 export class ReviewService {
   private pending = new Map<string, { previewId: string; controller: AbortController }>();
   private comparisons = new Map<string, ComparisonPreview>();
   private previews = new Map<string, AnalysisPreview>();
   private options: ReviewServiceOptions;
   private cache: ExplanationCache;
-  constructor(options: ReviewServiceOptions = {}) { this.options = options; this.cache = new ExplanationCache(options.cacheDirectory); }
+  private recentProjects: RecentProjects;
+  constructor(options: ReviewServiceOptions = {}) { this.options = options; this.cache = new ExplanationCache(options.cacheDirectory); this.recentProjects = new RecentProjects(options.dataDirectory); }
+  removeRecentProject(path: string) { return this.recentProjects.remove(path); }
+  clearRecentProjects() { return this.recentProjects.clear(); }
+  getRecentProjects() { return this.recentProjects.list(); }
+  async openProject(path: string): Promise<OpenedProject> {
+    const repository = await this.openRepository(path);
+    return { ...repository, history: await this.recentProjects.record(repository.root) };
+  }
   getSettings(): ModelSettings {
     return { model: this.options.model ?? process.env.OPENROUTER_MODEL ?? 'openai/gpt-4.1-mini', configured: Boolean(this.options.apiKey ?? process.env.OPENROUTER_API_KEY) };
   }
