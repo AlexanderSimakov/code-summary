@@ -6,15 +6,26 @@ export function useRecentProjects() {
   const [result, setResult] = useState<RecentProjectsResult>({ projects: [] });
   const [actionWarning, recordWarning] = useState<string>();
   const [pending, setPending] = useState(false);
-  const revision = useRef(0);
-  const invalidate = useCallback(() => { revision.current++; }, []);
+  const readRevision = useRef(0);
+  const operationRevision = useRef(0);
+  const invalidate = useCallback(() => {
+    readRevision.current++;
+    return ++operationRevision.current;
+  }, []);
+  const accept = useCallback((latest: RecentProjectsResult, id: number) => {
+    if (id !== operationRevision.current) return;
+    // A focus read cannot supersede a user operation; its old response must now be ignored.
+    readRevision.current++;
+    setResult(latest);
+    recordWarning(latest.warning);
+  }, []);
   const refresh = useCallback(async () => {
-    const id = ++revision.current;
+    const id = ++readRevision.current;
     try {
       const latest = await api<RecentProjectsResult>('projects/recent', {});
-      if (id === revision.current) setResult(latest);
+      if (id === readRevision.current) setResult(latest);
     } catch (error) {
-      if (id === revision.current) setResult(current => ({ ...current, warning: `Recent projects could not be loaded: ${(error as Error).message}` }));
+      if (id === readRevision.current) setResult(current => ({ ...current, warning: `Recent projects could not be loaded: ${(error as Error).message}` }));
     }
   }, []);
   useEffect(() => {
@@ -24,15 +35,18 @@ export function useRecentProjects() {
     return () => { invalidate(); window.removeEventListener('focus', focus); };
   }, [refresh, invalidate]);
   const change = async (operation: 'remove' | 'clear', path?: string) => {
-    invalidate(); setPending(true);
+    const id = invalidate();
+    setPending(true);
     try {
       const latest = await api<RecentProjectsResult>(`projects/recent/${operation}`, path ? { path } : {});
-      recordWarning(latest.warning);
+      accept(latest, id);
       await refresh();
-    } catch (error) { recordWarning(`Recent projects could not be updated: ${(error as Error).message}`); }
+    } catch (error) {
+      if (id === operationRevision.current) recordWarning(`Recent projects could not be updated: ${(error as Error).message}`);
+    }
     finally { setPending(false); }
   };
-  return { projects: result.projects, warning: actionWarning ?? result.warning, pending, refresh, invalidate, recordWarning, change };
+  return { projects: result.projects, warning: actionWarning ?? result.warning, pending, refresh, invalidate, accept, change };
 }
 
 export function RecentProjects({ history, onOpen, opening }: {

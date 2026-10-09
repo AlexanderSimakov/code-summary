@@ -38,14 +38,14 @@ function App() {
   const history = useRecentProjects();
   async function openProject(projectPath: string) {
     const id = ++request.current;
-    history.invalidate();
+    const historyId = history.invalidate();
     setLoading(true); setError('');
     try {
       const next = await api<OpenedProject>('repository', { path: projectPath });
       if (id !== request.current) return;
       setRepository(next); setFile(null); setHighlight(null); setOutdated(false);
       setEnglishMode('baseline'); setView('source'); setPath(next.root);
-      history.recordWarning(next.history.warning);
+      history.accept(next.history, historyId);
       await history.refresh();
     } catch (error) { if (id === request.current) setError((error as Error).message); }
     finally { if (id === request.current) setLoading(false); }

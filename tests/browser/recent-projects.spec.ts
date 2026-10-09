@@ -10,17 +10,26 @@ const test = base.extend<{ history: { connect: (context: BrowserContext) => Prom
   history: async ({}, use) => {
     const storage = await mkdtemp(join(tmpdir(), 'recent-projects-browser-'));
     const service = new ReviewService({ dataDirectory: join(storage, 'history'), cacheDirectory: join(storage, 'cache') });
+    const contexts = new Set<BrowserContext>();
     const server = createReviewServer(service);
     await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
     const address = server.address();
     if (!address || typeof address === 'string') throw new Error('Missing test server address');
     try {
-      await use({ service, connect: context => context.route('**/api/**', async route => {
-        const response = await route.fetch({ url: `http://127.0.0.1:${address.port}${new URL(route.request().url()).pathname}` });
-        await route.fulfill({ response });
-      }) });
+      await use({ service, connect: async context => {
+        contexts.add(context);
+        context.once('close', () => contexts.delete(context));
+        await context.route('**/api/**', async route => {
+          const response = await route.fetch({ url: `http://127.0.0.1:${address.port}${new URL(route.request().url()).pathname}` });
+          await route.fulfill({ response });
+        });
+      } });
     } finally {
-      await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+      await Promise.all([...contexts].map(context => context.unrouteAll({ behavior: 'wait' })));
+      await new Promise<void>((resolve, reject) => {
+        server.close(error => error ? reject(error) : resolve());
+        server.closeAllConnections();
+      });
       await rm(storage, { recursive: true, force: true });
     }
   },
@@ -195,4 +204,75 @@ test('history read failures keep existing shortcuts and allow manual browsing', 
     await page.getByRole('button', { name: 'main.ts unchanged', exact: true }).click();
     await expect(page.getByLabel('Source code')).toContainText('answer');
   } finally { await repo.cleanup(); }
+});
+
+
+for (const operation of ['remove', 'clear'] as const) {
+  test(`successful ${operation} remains applied when the following history refresh fails`, async ({ page, context, history }) => {
+    const first = await fixture();
+    const second = await fixture();
+    try {
+      await history.service.openProject(first.path);
+      await history.service.openProject(second.path);
+      await history.connect(context);
+      await page.goto('/');
+      await expect(page.getByRole('button', { name: reopenName(first.path), exact: true })).toBeVisible();
+      await expect(page.getByRole('button', { name: reopenName(second.path), exact: true })).toBeVisible();
+      await page.route('**/api/projects/recent', route => route.fulfill({ status: 503, json: { error: 'Refresh temporarily unavailable.' } }));
+      await page.getByRole('button', { name: operation === 'remove' ? `Remove ${basename(first.path)} ${first.path}` : 'Clear history', exact: true }).click();
+      const recent = page.getByRole('region', { name: 'Recent projects' });
+      await expect(recent).toContainText('Refresh temporarily unavailable.');
+      await expect(recent.getByRole('button', { name: reopenName(first.path), exact: true })).toHaveCount(0);
+      if (operation === 'remove') {
+        await expect(recent.getByRole('button', { name: reopenName(second.path), exact: true })).toBeVisible();
+      } else {
+        await expect(recent).toContainText('No recent projects yet.');
+        await expect(recent.getByRole('button', { name: reopenName(second.path), exact: true })).toHaveCount(0);
+      }
+    } finally { await first.cleanup(); await second.cleanup(); }
+  });
+}
+
+
+test('a successful open appears in history when its list refresh fails', async ({ page, context, history }) => {
+  const repo = await fixture();
+  try {
+    await history.connect(context);
+    await page.goto('/');
+    await expect(page.getByRole('region', { name: 'Recent projects' })).toContainText('No recent projects yet.');
+    await page.route('**/api/projects/recent', route => route.fulfill({ status: 503, json: { error: 'Refresh temporarily unavailable.' } }));
+    await page.getByLabel('Repository path').fill(repo.path);
+    await page.getByRole('button', { name: 'Open repository', exact: true }).click();
+    await expect(page.getByRole('region', { name: 'Recent projects' })).toContainText('Refresh temporarily unavailable.');
+    await expect(page.getByRole('button', { name: reopenName(repo.path), exact: true })).toBeVisible();
+    await expect(page.getByText('Select a file to view its source.')).toBeVisible();
+  } finally { await repo.cleanup(); }
+});
+
+test('a focus read cannot suppress a successful in-flight removal when refreshes fail', async ({ page, context, history }) => {
+  const repo = await fixture();
+  let release!: () => void;
+  let started!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const removing = new Promise<void>(resolve => { started = resolve; });
+  try {
+    await history.service.openProject(repo.path);
+    await history.connect(context);
+    await page.goto('/');
+    await expect(page.getByRole('button', { name: reopenName(repo.path), exact: true })).toBeVisible();
+    await page.route('**/api/projects/recent/remove', async route => {
+      const snapshot = await history.service.removeRecentProject(repo.path);
+      started(); await gate;
+      await route.fulfill({ json: snapshot });
+    });
+    await page.route('**/api/projects/recent', route => route.fulfill({ status: 503, json: { error: 'Refresh temporarily unavailable.' } }));
+    await page.getByRole('button', { name: `Remove ${basename(repo.path)} ${repo.path}`, exact: true }).click();
+    await removing;
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await expect(page.getByRole('region', { name: 'Recent projects' })).toContainText('Refresh temporarily unavailable.');
+    release();
+    await expect(page.getByRole('button', { name: reopenName(repo.path), exact: true })).toHaveCount(0);
+    await expect(page.getByRole('region', { name: 'Recent projects' })).toContainText('No recent projects yet.');
+    await expect(page.getByRole('region', { name: 'Recent projects' })).toContainText('Refresh temporarily unavailable.');
+  } finally { release(); await repo.cleanup(); }
 });
