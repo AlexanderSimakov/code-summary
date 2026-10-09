@@ -1,11 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import type { FileReview, RepositoryReview } from '../shared/review.js';
+import type { FileReview, RepositoryReview, OpenedProject } from '../shared/review.js';
 import { api } from './api.js';
 import './style.css';
 import { ComparisonPanel } from './ComparisonPanel.js';
 import { ExplanationPanel } from './ExplanationPanel.js';
 import { RepositoryTree } from './RepositoryTree.js';
+import { RecentProjects, useRecentProjects } from './RecentProjects.js';
 import { SourceCode } from './SourceCode.js';
 import type { SourceReference } from '../shared/explanation.js';
 
@@ -34,16 +35,24 @@ function App() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const request = useRef(0);
-  async function open(event: React.FormEvent) {
-    event.preventDefault();
+  const history = useRecentProjects();
+  async function openProject(projectPath: string) {
     const id = ++request.current;
+    history.invalidate();
     setLoading(true); setError('');
     try {
-      const next = await api<RepositoryReview>('repository', { path });
+      const next = await api<OpenedProject>('repository', { path: projectPath });
       if (id !== request.current) return;
-      setRepository(next); setFile(null);
+      setRepository(next); setFile(null); setHighlight(null); setOutdated(false);
+      setEnglishMode('baseline'); setView('source'); setPath(next.root);
+      history.recordWarning(next.history.warning);
+      await history.refresh();
     } catch (error) { if (id === request.current) setError((error as Error).message); }
     finally { if (id === request.current) setLoading(false); }
+  }
+  function open(event: React.FormEvent) {
+    event.preventDefault();
+    void openProject(path);
   }
   async function select(filePath: string) {
     if (!repository) return;
@@ -60,6 +69,7 @@ function App() {
   return <div className="app">
     <header><span className="eyebrow">LOCAL CODE REVIEW</span><h1>Code Summary</h1><p>Understand the change. Keep the source in sight.</p></header>
     <form onSubmit={open} className="open-form"><label htmlFor="repository">Repository path</label><div><input id="repository" value={path} onChange={event => setPath(event.target.value)} placeholder="/path/to/your/repository" required /><button disabled={loading}>Open repository</button></div></form>
+    <RecentProjects history={history} onOpen={openProject} opening={loading} />
     {error && <p role="alert" className="error">{error}</p>}
     {loading && <p role="status">Reading repository…</p>}
     {repository && <><div className="repo-heading"><strong>{repository.root}</strong><span>{repository.head ? 'Working tree vs HEAD' : 'No commits yet'}</span></div>
