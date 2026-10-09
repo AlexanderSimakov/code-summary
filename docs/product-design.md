@@ -18,7 +18,7 @@ A personal experiment for a developer who wants to understand source code and re
 - Unchanged statements retain their wording. Changes appear as added, removed, or modified statements.
 - Source changes that appear to preserve behavior are marked “Source changed; no behavior change identified.” This is an AI assessment, not a proof of equivalence.
 - Source code and source diffs remain accessible from the English view.
-- The reading layout places English on the left and source on the right, with linked selections.
+- The reading layout places English on the left and source on the right, with linked selections. Long reviews extend the page and scroll vertically with the document; wide source lines scroll horizontally inside the source pane. Current and previous source use syntax highlighting, and Git diffs retain addition and removal colors.
 - The source pane normally shows current source, with a toggle to the Git diff against HEAD. Selecting a removed statement reveals its previous source.
 - The app may read relevant definitions from other files to explain behavior. Explanations must flag uncertainty when available context is insufficient.
 - Untracked files appear as additions, deleted files as removals, and Git-ignored files are excluded.

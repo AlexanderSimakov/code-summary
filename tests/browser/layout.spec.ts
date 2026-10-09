@@ -3,7 +3,7 @@ import { fixture } from '../fixture.js';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-test('long desktop reviews keep selected English beside source, including when outdated', async ({ page }) => {
+test('long desktop reviews scroll the page and retain source links when outdated', async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 1100 });
   const repo = await fixture();
   try {
@@ -26,9 +26,11 @@ test('long desktop reviews keep selected English beside source, including when o
     await expect(page.getByText('Uncertain: The return depends on an unresolved definition.', { exact: true })).toHaveCount(1);
     const selected = page.getByRole('button', { name: 'Returns 29.', exact: true });
     await selected.click();
-    await expect(selected).toBeInViewport();
     await expect(page.locator('.source-highlight')).toBeInViewport();
-    await expect(page.getByRole('heading', { name: 'Code Summary', exact: true })).toBeInViewport();
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+    await page.evaluate(() => window.scrollTo({ top: document.body.scrollHeight, behavior: 'instant' }));
+    await expect(selected).toBeInViewport();
+    await page.evaluate(() => window.scrollTo(0, 0));
     await writeFile(join(repo.path, 'sample.ts'), `${content}\n// external edit\n`);
     await expect(page.getByText('Review outdated.')).toBeVisible();
     const english = await page.getByLabel('English explanations').boundingBox();
