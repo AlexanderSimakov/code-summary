@@ -1,6 +1,6 @@
 # Code Summary design
 
-This document records agreed decisions from the design interview. The consolidated first milestone is awaiting confirmation; implementation has not been approved.
+This document records agreed decisions from the design interview. The first milestone and testing approach are confirmed and published in [GitHub issue #1](https://github.com/AlexanderSimakov/code-summary/issues/1), labeled `ready-for-agent`. Use that issue as the implementation specification; this document preserves the design context.
 
 ## Purpose
 
