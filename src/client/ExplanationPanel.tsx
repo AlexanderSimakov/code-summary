@@ -58,7 +58,7 @@ export function ExplanationPanel({ file, onSelect, outdated = false, onOutdated 
       {!configured && <p className="muted">Configure OPENROUTER_API_KEY in the local server .env file before generation. Source browsing needs no key.</p>}
       <button onClick={prepare} disabled={outdated || busy || generation.pending}>Preview transmission</button>
       {preview && <div className="transmission" aria-label="Transmission preview"><h3>Source sent to OpenRouter</h3><p>Model: {preview.model}. Opening this preview sends nothing.</p>
-        {preview.contextWarnings?.map(warning => <p className="uncertainty" key={warning}>Context warning: {warning}</p>)}
+        {!explanation && preview.contextWarnings?.map(warning => <p className="uncertainty" key={warning}>Context warning: {warning}</p>)}
         {preview.unavailableReason && <p role="alert" className="error">{preview.unavailableReason}</p>}
         {preview.files.map(source => <details key={`${source.path}:${source.version}`}><summary>{source.path} · {source.version}</summary><pre>{source.content}</pre></details>)}
         <p>Includes {preview.functions.length} source units (functions, declarations and module behavior). Source is sent only when you generate.</p>
@@ -67,7 +67,7 @@ export function ExplanationPanel({ file, onSelect, outdated = false, onOutdated 
       {busy && <p role="status">Preparing transmission preview…</p>}
       {generation.pending && <div><p role="status">Generating explanations…</p><button onClick={() => { generation.cancel(); setError('Generation cancelled. Provider charges may still apply.'); }}>Cancel generation</button></div>}
       {explanation?.cached && <p>Cached explanation · no new AI request.</p>}
-      {explanation && <UsageReport usage={explanation.usage} />}
+      {explanation && <><UsageReport usage={explanation.usage} /><div aria-label="Explanation context warnings">{explanation.contextWarnings?.map(warning => <p className="uncertainty" key={warning}>Context warning: {warning}</p>)}</div></>}
       {error && <p role="alert" className="error">{error}</p>}
       {explanation?.functions.map(fn => <article className="function-explanation" key={fn.id}><h3>{fn.name || fn.displayName || 'Anonymous source unit'}</h3>{fn.statements.map((statement, index) => <div key={index}><button className="statement" onClick={() => onSelect(statement.reference)}>{statement.text}</button>{statement.uncertainty && <p className="uncertainty">Uncertain: {statement.uncertainty}</p>}</div>)}</article>)}
     </>}

@@ -61,7 +61,7 @@ export function ComparisonPanel({ file, onSelect, outdated = false, onOutdated =
       <ContextSettings value={contextLimitBytes} onChange={value => { setContextLimitBytes(value); setPreview(null); }} disabled={busy} />
       <button onClick={prepare} disabled={outdated || busy}>Preview transmission</button>
       {preview && <div className="transmission" aria-label="Transmission preview"><h3>Source sent to OpenRouter</h3><p>Model: {preview.model}. Both HEAD and current versions are previewed. Opening this preview sends nothing.</p>
-        {[preview.previous, preview.current].map((side, index) => side && <div key={index}>{side.contextWarnings?.map(warning => <p className="uncertainty" key={warning}>Context warning: {warning}</p>)}{side.unavailableReason && <p role="alert" className="error">{side.unavailableReason}</p>}</div>)}
+        {[preview.previous, preview.current].map((side, index) => side && <div key={index}>{!comparison && side.contextWarnings?.map(warning => <p className="uncertainty" key={warning}>Context warning: {warning}</p>)}{side.unavailableReason && <p role="alert" className="error">{side.unavailableReason}</p>}</div>)}
         {preview.files.map((source, index) => <details key={`${source.path}:${source.version}:${index}`}><summary>{source.path} · {source.version}</summary><pre>{source.content}</pre></details>)}
         <button onClick={generate} disabled={busy || Boolean(preview.previous?.unavailableReason || preview.current?.unavailableReason)}>{error ? 'Retry generation' : 'Generate explanations'}</button>
       </div>}
@@ -71,6 +71,7 @@ export function ComparisonPanel({ file, onSelect, outdated = false, onOutdated =
         {(comparison.previous?.cached || comparison.current?.cached) && <p>Cached explanations reused without a new AI request.</p>}
         {comparison.previous && <section aria-label="HEAD AI usage"><h3>HEAD</h3><UsageReport usage={comparison.previous.usage} /></section>}
         {comparison.current && <section aria-label="Current AI usage"><h3>Current</h3><UsageReport usage={comparison.current.usage} /></section>}
+        {[comparison.previous, comparison.current].map((side, index) => side && <div aria-label={index === 0 ? "HEAD context warnings" : "Current context warnings"} key={index}>{side.contextWarnings?.map(warning => <p className="uncertainty" key={warning}>{index === 0 ? "HEAD" : "Current"} context warning: {warning}</p>)}</div>)}
         {comparison.assessment && <p className="assessment">AI assessment: {comparison.assessment}. This is not proof of equivalence; inspect Git diff.</p>}
         <p className="uncertainty">{comparison.uncertainty}</p>
         {comparison.functions.length === 0 && <p>No explainable source units to compare. Source changes remain available in Git diff.</p>}

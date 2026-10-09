@@ -39,7 +39,7 @@ test('bounded context is explicit in preview and uncertainty; oversized selectio
     let calls = 0;
     const service = new ReviewService({ apiKey: 'test', transport: async request => {
       calls++;
-      return { content: { functions: request.functions.map(fn => ({ id: fn.id, name: fn.name, statements: [{ text: 'Calls deliver.', startLine: fn.startLine, endLine: fn.endLine, uncertainty: null }] })) } };
+      return { content: { functions: request.functions.map(fn => ({ id: fn.id, name: fn.name, statements: [{ text: 'Calls deliver.', startLine: fn.startLine, endLine: fn.endLine, uncertainty: 'The implementation of deliver is unavailable.' }] })) } };
     } });
     const limited = await service.prepareAnalysis(repo.path, 'main.ts', undefined, { contextLimitBytes: Buffer.byteLength(source) });
     assert.equal(limited.files.length, 1);
@@ -47,7 +47,8 @@ test('bounded context is explicit in preview and uncertainty; oversized selectio
     assert.match(limited.contextWarnings!.join(' '), /missing.*could not be resolved/);
     assert.match(limited.contextWarnings!.join(' '), /third-party.*unavailable/);
     const explanation = await service.generateExplanation(limited.id);
-    assert.match(explanation.functions[0].statements[0].uncertainty!, /Context limit reached/);
+    assert.match(explanation.contextWarnings!.join(' '), /Context limit reached/);
+    assert.equal(explanation.functions[0].statements[0].uncertainty, 'The implementation of deliver is unavailable.');
     const oversized = await service.prepareAnalysis(repo.path, 'main.ts', undefined, { contextLimitBytes: 10 });
     assert.equal(oversized.files.length, 0);
     assert.match(oversized.unavailableReason!, /exceeds the context limit/);

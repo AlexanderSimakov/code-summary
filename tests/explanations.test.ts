@@ -5,6 +5,19 @@ import { join } from 'node:path';
 import { fixture } from './fixture.js';
 import { ReviewService } from '../src/server/review-service.js';
 
+test('closing braces alone cannot serve as evidence for a behavior statement', async () => {
+  const repo = await fixture();
+  try {
+    await writeFile(join(repo.path, 'main.ts'), 'export function save() {\n  persist();\n}\n');
+    const service = new ReviewService({ apiKey: 'test', transport: async request => ({ content: { functions: request.functions.map(fn => ({ id: fn.id, name: fn.name,
+      statements: [{ text: 'Persists the data.', startLine: 3, endLine: 3, uncertainty: null }],
+    })) } }) });
+    const preview = await service.prepareAnalysis(repo.path, 'main.ts');
+    await assert.rejects(service.generateExplanation(preview.id), /Invalid explanation or source references/);
+    assert.match((await service.getFile(repo.path, 'main.ts')).current!.content, /persist/);
+  } finally { await repo.cleanup(); }
+});
+
 test('preview complete named functions without transmission; explicitly generate validated linked statements', async () => {
   const repo = await fixture();
   try {
