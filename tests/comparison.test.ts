@@ -15,7 +15,7 @@ test('English diff previews both versions, preserves unchanged wording and links
     const service = new ReviewService({ apiKey: 'test', transport: async request => {
       calls++;
       const previous = request.files[0].version === 'previous';
-      return { content: { functions: [{ ...request.functions[0], startLine: undefined, endLine: undefined,
+      return { content: { functions: [{ id: request.functions[0].id, name: request.functions[0].name, startLine: undefined, endLine: undefined,
         statements: [
           { text: 'Validates input.', startLine: 2, endLine: 2, uncertainty: null },
           { text: previous ? 'Retries three times.' : 'Retries five times.', startLine: 3, endLine: 3, uncertainty: null },
