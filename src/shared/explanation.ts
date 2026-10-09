@@ -8,5 +8,6 @@ export interface AnalysisPreview {
 export interface SourceReference { path: string; version: SourceSnapshot['version']; sourceHash: string; startLine: number; endLine: number }
 export interface ExplanationStatement { text: string; uncertainty: string | null; reference: SourceReference }
 export interface FunctionExplanation extends AnalysisFunction { statements: ExplanationStatement[] }
-export interface FileExplanation { previewId: string; model: string; functions: FunctionExplanation[]; files: AnalysisFile[] }
+export interface GenerationUsage { promptTokens?: number; completionTokens?: number; totalTokens?: number; cost?: number }
+export interface FileExplanation { usage?: GenerationUsage; previewId: string; model: string; functions: FunctionExplanation[]; files: AnalysisFile[] }
 export interface ModelSettings { model: string; configured: boolean }
