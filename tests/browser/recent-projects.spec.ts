@@ -276,3 +276,59 @@ test('a focus read cannot suppress a successful in-flight removal when refreshes
     await expect(page.getByRole('region', { name: 'Recent projects' })).toContainText('Refresh temporarily unavailable.');
   } finally { release(); await repo.cleanup(); }
 });
+
+
+test('a successful open is remembered even when a later source selection retains the current review', async ({ page, context, history }) => {
+  const current = await fixture();
+  const next = await fixture();
+  let release!: () => void;
+  let started!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const opening = new Promise<void>(resolve => { started = resolve; });
+  try {
+    await history.connect(context);
+    await page.goto('/');
+    await page.getByLabel('Repository path').fill(current.path);
+    await page.getByRole('button', { name: 'Open repository', exact: true }).click();
+    await expect(page.getByRole('button', { name: reopenName(current.path), exact: true })).toBeVisible();
+    await page.route('**/api/repository', async route => {
+      const snapshot = await history.service.openProject(next.path);
+      started(); await gate;
+      await route.fulfill({ json: snapshot });
+    }, { times: 1 });
+    await page.route('**/api/projects/recent', route => route.fulfill({ status: 503, json: { error: 'Refresh temporarily unavailable.' } }));
+    await page.getByLabel('Repository path').fill(next.path);
+    await page.getByRole('button', { name: 'Open repository', exact: true }).click();
+    await opening;
+    await page.getByRole('button', { name: 'main.ts unchanged', exact: true }).click();
+    await expect(page.getByLabel('Source code')).toContainText('answer');
+    release();
+    await expect(page.getByRole('button', { name: reopenName(next.path), exact: true })).toBeVisible();
+    await expect(page.getByLabel('Source code')).toContainText('answer');
+    await expect(page.getByRole('region', { name: 'Recent projects' })).toContainText('Refresh temporarily unavailable.');
+  } finally { release(); await current.cleanup(); await next.cleanup(); }
+});
+
+
+test('a successful open allows source browsing while its history refresh is still pending', async ({ page, context, history }) => {
+  const repo = await fixture();
+  let release!: () => void;
+  let started!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const refreshing = new Promise<void>(resolve => { started = resolve; });
+  try {
+    await history.connect(context);
+    await page.goto('/');
+    await expect(page.getByRole('region', { name: 'Recent projects' })).toContainText('No recent projects yet.');
+    await page.route('**/api/projects/recent', async route => {
+      started(); await gate;
+      await route.fulfill({ json: await history.service.getRecentProjects() });
+    });
+    await page.getByLabel('Repository path').fill(repo.path);
+    await page.getByRole('button', { name: 'Open repository', exact: true }).click();
+    await refreshing;
+    await expect(page.getByRole('button', { name: reopenName(repo.path), exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'main.ts unchanged', exact: true }).click();
+    await expect(page.getByLabel('Source code')).toContainText('answer');
+  } finally { release(); await repo.cleanup(); }
+});
