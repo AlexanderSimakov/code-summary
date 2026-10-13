@@ -24,13 +24,15 @@ export function useEnglishReview<K extends keyof Reviews>(kind: K, file: FileRev
   // Cache, preparation and generation share one ownership token. Explicit work
   // supersedes cache restoration as well as any older explicit request.
   const request = useRef(0);
-  const editedModel = useRef(false);
+  // Initial settings are defaults. Editing or approving work chooses the
+  // displayed model for this review, even if those settings arrive later.
+  const modelChosen = useRef(false);
   const generation = useGeneration();
   useEffect(() => {
     let active = true;
     api<ModelSettings>('settings', {}).then(settings => {
       if (!active) return;
-      if (!editedModel.current) updateModel(settings.model);
+      if (!modelChosen.current) updateModel(settings.model);
       setConfigured(settings.configured);
     }).catch(error => { if (active) setError(error.message); });
     return () => { active = false; };
@@ -58,6 +60,7 @@ export function useEnglishReview<K extends keyof Reviews>(kind: K, file: FileRev
   }, [file, model, contextLimitBytes, kind]);
   async function prepare() {
     if (!file) return;
+    modelChosen.current = true;
     const id = ++request.current;
     setBusy(true); setError('');
     try {
@@ -73,6 +76,7 @@ export function useEnglishReview<K extends keyof Reviews>(kind: K, file: FileRev
   }
   async function generate() {
     if (!preview) return;
+    modelChosen.current = true;
     const id = ++request.current;
     setError('');
     try {
@@ -84,7 +88,7 @@ export function useEnglishReview<K extends keyof Reviews>(kind: K, file: FileRev
     ++request.current; generation.cancel(); setBusy(false);
     setError('Generation cancelled. Provider charges may still apply.');
   }
-  function setModel(value: string) { editedModel.current = true; updateModel(value); }
+  function setModel(value: string) { modelChosen.current = true; updateModel(value); }
   return { model, setModel, contextLimitBytes, setContextLimitBytes, configured, preview, result, error, busy,
     pending: generation.pending, prepare, generate, cancel };
 }
