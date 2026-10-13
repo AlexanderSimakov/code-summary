@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import type { FileReview, RepositoryReview, OpenedProject } from '../shared/review.js';
+import type { FileReview, RepositoryReview } from '../shared/review.js';
 import { api } from './api.js';
 import './style.css';
 import { ComparisonPanel } from './ComparisonPanel.js';
@@ -38,15 +38,12 @@ function App() {
   const history = useRecentProjects();
   async function openProject(projectPath: string) {
     const id = ++request.current;
-    const historyId = history.invalidate();
     setLoading(true); setError('');
     try {
-      const next = await api<OpenedProject>('repository', { path: projectPath });
+      const next = await history.openProject(projectPath);
       if (id !== request.current) return;
       setRepository(next); setFile(null); setHighlight(null); setOutdated(false);
       setEnglishMode('baseline'); setView('source'); setPath(next.root);
-      history.accept(next.history, historyId);
-      await history.refresh();
     } catch (error) { if (id === request.current) setError((error as Error).message); }
     finally { if (id === request.current) setLoading(false); }
   }
