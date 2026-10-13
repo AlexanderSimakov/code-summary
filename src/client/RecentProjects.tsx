@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from './api.js';
-import type { RecentProjectsResult } from '../shared/review.js';
+import type { RecentProjectsResult, OpenedProject } from '../shared/review.js';
 
 export function useRecentProjects() {
   const [result, setResult] = useState<RecentProjectsResult>({ projects: [] });
@@ -34,19 +34,35 @@ export function useRecentProjects() {
     window.addEventListener('focus', focus);
     return () => { invalidate(); window.removeEventListener('focus', focus); };
   }, [refresh, invalidate]);
-  const change = async (operation: 'remove' | 'clear', path?: string) => {
+  // Keep successful history actions independent of which source request the caller still wants.
+  const perform = async <T,>(action: () => Promise<T>, snapshot: (value: T) => RecentProjectsResult): Promise<T> => {
     const id = invalidate();
+    const value = await action();
+    if (id === operationRevision.current) {
+      accept(snapshot(value), id);
+      void refresh();
+    }
+    return value;
+  };
+  const openProject = (path: string) => perform(
+    () => api<OpenedProject>('repository', { path }),
+    opened => opened.history,
+  );
+  const change = async (operation: 'remove' | 'clear', path?: string) => {
+    // perform starts this operation synchronously before awaiting its transport.
+    const id = operationRevision.current + 1;
     setPending(true);
     try {
-      const latest = await api<RecentProjectsResult>(`projects/recent/${operation}`, path ? { path } : {});
-      accept(latest, id);
-      await refresh();
+      await perform(
+        () => api<RecentProjectsResult>(`projects/recent/${operation}`, path ? { path } : {}),
+        latest => latest,
+      );
     } catch (error) {
       if (id === operationRevision.current) recordWarning(`Recent projects could not be updated: ${(error as Error).message}`);
     }
     finally { setPending(false); }
   };
-  return { projects: result.projects, warning: actionWarning ?? result.warning, pending, refresh, invalidate, accept, change };
+  return { projects: result.projects, warning: actionWarning ?? result.warning, pending, openProject, change };
 }
 
 export function RecentProjects({ history, onOpen, opening }: {
