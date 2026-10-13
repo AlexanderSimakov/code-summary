@@ -113,6 +113,53 @@ for (const mode of ['analysis', 'comparison'] as const) {
       } finally { release(); await repo.cleanup(); }
     });
   }
+  for (const phase of ['preview', 'generation']) {
+    test(`${mode} keeps approved ${phase} when initial model settings arrive late`, async ({ page }) => {
+      const repo = await fixture();
+      let releaseSettings!: () => void;
+      const settingsPaused = new Promise<void>(resolve => { releaseSettings = resolve; });
+      let releaseGeneration!: () => void;
+      const generationPaused = new Promise<void>(resolve => { releaseGeneration = resolve; });
+      try {
+        await writeFile(join(repo.path, 'sample.ts'), 'export function sample() { return 42; }\n');
+        if (mode === 'analysis') { repo.git('add', '.'); repo.git('commit', '-qm', 'baseline'); }
+        await page.route('**/api/settings', async route => {
+          await settingsPaused;
+          await route.fulfill({ json: { model: 'configured/model', configured: true } }).catch(() => {});
+        });
+        await page.route(`**/api/${mode}/cache`, route => route.fulfill({ json: { preview: { files: [] }, explanation: null, comparison: null } }));
+        await page.route(`**/api/${mode}/preview`, route => route.fulfill({ json: { id: 'approved-preview', model: 'openai/gpt-4.1-mini', files: [], functions: [] } }));
+        await page.route(`**/api/${mode}/freshness`, route => route.fulfill({ json: { outdated: false } }));
+        let generations = 0;
+        await page.route(`**/api/${mode}/generate`, async route => {
+          generations++;
+          await generationPaused;
+          await route.fulfill({ json: reviewResult(mode, 'approved-preview', 'Approved result.') }).catch(() => {});
+        });
+        await page.goto('/');
+        await page.getByLabel('Repository path').fill(repo.path);
+        await page.getByRole('button', { name: 'Open repository' }).click();
+        await page.getByRole('button', { name: `sample.ts ${mode === 'analysis' ? 'unchanged' : 'added'}` }).click();
+        await page.getByRole('button', { name: 'Preview transmission' }).click();
+        await expect(page.getByLabel('Transmission preview')).toContainText('openai/gpt-4.1-mini');
+        if (phase === 'generation') {
+          await page.getByRole('button', { name: 'Generate explanations' }).click();
+          await expect.poll(() => generations).toBe(1);
+        }
+        const settingsResponse = page.waitForResponse('**/api/settings');
+        releaseSettings(); await settingsResponse;
+        await expect(page.getByLabel('OpenRouter model')).toHaveValue('openai/gpt-4.1-mini');
+        await expect(page.getByLabel('Transmission preview')).toBeVisible();
+        if (phase === 'generation') await expect(page.getByRole('button', { name: 'Cancel generation' })).toBeVisible();
+        else await expect(page.getByRole('button', { name: 'Generate explanations' })).toBeEnabled();
+        releaseGeneration();
+        if (phase === 'preview') await page.getByRole('button', { name: 'Generate explanations' }).click();
+        await expect(page.getByRole('button', { name: /Approved result/ })).toBeVisible();
+        expect(generations).toBe(1);
+      } finally { releaseSettings(); releaseGeneration(); await repo.cleanup(); }
+    });
+  }
+
   test(`${mode} ignores outdated freshness from a previous file selection`, async ({ page }) => {
     const repo = await fixture();
     let release!: () => void;
