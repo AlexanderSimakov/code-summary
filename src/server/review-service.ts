@@ -31,12 +31,42 @@ function snapshot(version: SourceSnapshot['version'], content: string): SourceSn
   return { version, content, hash: createHash('sha256').update(content).digest('hex') };
 }
 
+/** One FIFO ownership decision retains or expires a comparison and all its sides.
+ * The session budget is 100 source-bearing analysis snapshots. Empty comparisons
+ * reserve one slot too, so metadata-only approvals are also bounded.
+ */
+class ApprovedPreviews {
+  private approvals = new Map<string, { preview: AnalysisPreview | ComparisonPreview; analyses: AnalysisPreview[] }>();
+  private slots = 0;
+  retain(preview: AnalysisPreview | ComparisonPreview) {
+    const analyses = 'previous' in preview
+      ? [preview.previous, preview.current].filter((side): side is AnalysisPreview => side !== null)
+      : [preview];
+    this.approvals.set(preview.id, { preview, analyses });
+    this.slots += Math.max(1, analyses.length);
+    while (this.slots > 100) {
+      const oldest = this.approvals.keys().next().value!;
+      this.slots -= Math.max(1, this.approvals.get(oldest)!.analyses.length);
+      this.approvals.delete(oldest);
+    }
+  }
+  analysis(id: string): AnalysisPreview | undefined {
+    for (const approval of this.approvals.values()) {
+      const analysis = approval.analyses.find(side => side.id === id);
+      if (analysis) return analysis;
+    }
+  }
+  comparison(id: string): ComparisonPreview | undefined {
+    const preview = this.approvals.get(id)?.preview;
+    return preview && 'previous' in preview ? preview : undefined;
+  }
+}
+
 /** Public application seam. Reads Git objects and local files; never executes target code. */
 export interface ReviewServiceOptions { apiKey?: string; model?: string; transport?: AITransport; cacheDirectory?: string; dataDirectory?: string }
 export class ReviewService {
   private pending = new Map<string, { previewId: string; controller: AbortController }>();
-  private comparisons = new Map<string, ComparisonPreview>();
-  private previews = new Map<string, AnalysisPreview>();
+  private approvals = new ApprovedPreviews();
   private options: ReviewServiceOptions;
   private cache: ExplanationCache;
   private recentProjects: RecentProjects;
@@ -52,6 +82,11 @@ export class ReviewService {
     return { model: this.options.model ?? process.env.OPENROUTER_MODEL ?? 'openai/gpt-4.1-mini', configured: Boolean(this.options.apiKey ?? process.env.OPENROUTER_API_KEY) };
   }
   async prepareAnalysis(repositoryPath: string, filePath: string, model = this.getSettings().model, options: { version?: SourceSnapshot['version']; contextLimitBytes?: number } = {}): Promise<AnalysisPreview> {
+    const preview = await this.constructAnalysis(repositoryPath, filePath, model, options);
+    this.approvals.retain(preview);
+    return structuredClone(preview);
+  }
+  private async constructAnalysis(repositoryPath: string, filePath: string, model: string, options: { version?: SourceSnapshot['version']; contextLimitBytes?: number }): Promise<AnalysisPreview> {
     if (!model.trim() || model.length > 200) throw new Error('Choose a valid OpenRouter model.');
     const file = await this.getFile(repositoryPath, filePath);
     if (!file.supported || file.notice) throw new Error('This file is unsupported for explanations. Source remains available.');
@@ -82,19 +117,17 @@ export class ReviewService {
     }, contextLimitBytes);
     const preview: AnalysisPreview = { id: randomUUID(), repositoryPath: file.repositoryPath, filePath, model,
       ...context, contextLimitBytes, functions: extractFunctions(filePath, source.content) };
-    this.previews.set(preview.id, preview);
-    // A bounded session store avoids retaining arbitrary amounts of source indefinitely.
-    if (this.previews.size > 100) this.previews.delete(this.previews.keys().next().value!);
-    return structuredClone(preview);
+    return preview;
   }
   async getAnalysisFreshness(previewId: string): Promise<{ outdated: boolean }> {
-    const preview = this.previews.get(previewId);
-    if (!preview) return { outdated: true };
+    const preview = this.approvals.analysis(previewId);
+    return preview ? this.inspectAnalysis(preview) : { outdated: true };
+  }
+  private async inspectAnalysis(preview: AnalysisPreview): Promise<{ outdated: boolean }> {
     try {
-      const latest = await this.prepareAnalysis(preview.repositoryPath, preview.filePath, preview.model, {
+      const latest = await this.constructAnalysis(preview.repositoryPath, preview.filePath, preview.model, {
         version: preview.files[0]?.version, contextLimitBytes: preview.contextLimitBytes,
       });
-      this.previews.delete(latest.id);
       return { outdated: analysisIdentity(latest) !== analysisIdentity(preview) };
     } catch { return { outdated: true }; }
   }
@@ -103,12 +136,12 @@ export class ReviewService {
     return { preview, explanation: await this.cache.get(preview) };
   }
   async getComparisonFreshness(previewId: string): Promise<{ outdated: boolean }> {
-    const preview = this.comparisons.get(previewId);
+    const preview = this.approvals.comparison(previewId);
     if (!preview) return { outdated: true };
     try {
       const file = await this.getFile(preview.repositoryPath, preview.filePath);
       if (file.current?.hash !== preview.current?.files[0]?.hash || file.previous?.hash !== preview.previous?.files[0]?.hash) return { outdated: true };
-      for (const side of [preview.previous, preview.current]) if (side && (await this.getAnalysisFreshness(side.id)).outdated) return { outdated: true };
+      for (const side of [preview.previous, preview.current]) if (side && (await this.inspectAnalysis(side)).outdated) return { outdated: true };
       return { outdated: false };
     } catch { return { outdated: true }; }
   }
@@ -119,8 +152,12 @@ export class ReviewService {
     return { preview, comparison: (preview.previous && !previous) || (preview.current && !current) ? null : compareExplanations(preview.id, previous, current) };
   }
   async generateExplanation(previewId: string, signal?: AbortSignal): Promise<FileExplanation> {
-    const preview = this.previews.get(previewId);
+    const preview = this.approvals.analysis(previewId);
     if (!preview) throw new Error('Preview expired. Prepare another preview before generation.');
+    return this.generateApprovedExplanation(preview, signal);
+  }
+  private async generateApprovedExplanation(preview: AnalysisPreview, signal?: AbortSignal): Promise<FileExplanation> {
+    const previewId = preview.id;
     const key = `${preview.repositoryPath}\0${preview.filePath}`;
     this.pending.get(key)?.controller.abort();
     const controller = new AbortController();
@@ -136,7 +173,7 @@ export class ReviewService {
       if (controller.signal.aborted) onAbort();
     });
     try {
-      const result = await Promise.race([this.performGeneration(previewId, controller.signal), aborted]);
+      const result = await Promise.race([this.performGeneration(preview, controller.signal), aborted]);
       if (controller.signal.aborted || this.pending.get(key) !== entry) throw new Error('Generation cancelled.');
       return result;
     } finally {
@@ -151,16 +188,15 @@ export class ReviewService {
     }
     return false;
   }
-  private async performGeneration(previewId: string, signal: AbortSignal): Promise<FileExplanation> {
-    const preview = this.previews.get(previewId);
-    if (!preview) throw new Error('Preview expired. Prepare another preview before generation.');
+  private async performGeneration(preview: AnalysisPreview, signal: AbortSignal): Promise<FileExplanation> {
+    const previewId = preview.id;
     if (preview.unavailableReason) throw new Error(preview.unavailableReason);
     const source = preview.files[0];
     for (const transmitted of preview.files) {
       const current = await this.getFile(preview.repositoryPath, transmitted.path);
       if ((transmitted.version === 'current' ? current.current : current.previous)?.hash !== transmitted.hash) throw new Error(`${transmitted.path === preview.filePath ? 'Source' : 'Context'} changed since preview. Prepare a new preview.`);
     }
-    if ((await this.getAnalysisFreshness(preview.id)).outdated) throw new Error('Context changed since preview. Prepare a new preview.');
+    if ((await this.inspectAnalysis(preview)).outdated) throw new Error('Context changed since preview. Prepare a new preview.');
     const cached = await this.cache.get(preview);
     if (cached) { signal.throwIfAborted(); return cached; }
     const apiKey = this.options.apiKey ?? process.env.OPENROUTER_API_KEY;
@@ -197,21 +233,20 @@ export class ReviewService {
 
   async prepareComparison(repositoryPath: string, filePath: string, model = this.getSettings().model, options: { contextLimitBytes?: number } = {}): Promise<ComparisonPreview> {
     const file = await this.getFile(repositoryPath, filePath);
-    const previous = file.previous ? await this.prepareAnalysis(repositoryPath, filePath, model, { ...options, version: 'previous' }) : null;
-    const current = file.current ? await this.prepareAnalysis(repositoryPath, filePath, model, { ...options, version: 'current' }) : null;
+    const previous = file.previous ? await this.constructAnalysis(repositoryPath, filePath, model, { ...options, version: 'previous' }) : null;
+    const current = file.current ? await this.constructAnalysis(repositoryPath, filePath, model, { ...options, version: 'current' }) : null;
     const preview: ComparisonPreview = { id: randomUUID(), repositoryPath: file.repositoryPath, filePath, model, previous, current,
       files: [...(previous?.files ?? []), ...(current?.files ?? [])] };
-    this.comparisons.set(preview.id, preview);
-    if (this.comparisons.size > 100) this.comparisons.delete(this.comparisons.keys().next().value!);
+    this.approvals.retain(preview);
     return structuredClone(preview);
   }
   async generateComparison(previewId: string, signal?: AbortSignal): Promise<FileComparison> {
-    const preview = this.comparisons.get(previewId);
+    const preview = this.approvals.comparison(previewId);
     if (!preview) throw new Error('Preview expired. Prepare another preview before generation.');
     // Validate both snapshots before the first transmission, including absent versions.
     const file = await this.getFile(preview.repositoryPath, preview.filePath);
     if (file.previous?.hash !== preview.previous?.files[0]?.hash || file.current?.hash !== preview.current?.files[0]?.hash) throw new Error('Source changed since preview. Prepare a new preview.');
-    const explain = async (side: AnalysisPreview | null) => side ? side.functions.length ? this.generateExplanation(side.id, signal) : { previewId: side.id, model: side.model, functions: [], files: side.files } : null;
+    const explain = async (side: AnalysisPreview | null) => side ? side.functions.length ? this.generateApprovedExplanation(side, signal) : { previewId: side.id, model: side.model, functions: [], files: side.files } : null;
     const previous = await explain(preview.previous);
     signal?.throwIfAborted();
     const current = await explain(preview.current);
